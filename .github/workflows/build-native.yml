@@ -1,0 +1,196 @@
+name: Build Native Apps
+
+# ============================================================================
+# Build MASOMO native installers for all platforms:
+#   - Windows: .exe (NSIS) + .msi (WiX)
+#   - macOS:   .dmg + .pkg
+#   - Linux:   .deb + .AppImage
+#   - Android: .apk (debug + release)
+#
+# Usage:
+#   1. Push this project to GitHub
+#   2. Go to the "Actions" tab of your repository
+#   3. Select "Build Native Apps" workflow
+#   4. Click "Run workflow" → choose the server URL → Run
+#   5. When builds finish, download the artifacts (.exe, .pkg, .deb, .apk)
+#
+# Prerequisites:
+#   - For Android release APK: add a keystore as a repository secret
+#     (see ANDROID_KEYSTORE_BASE64 below). For debug APK, no secret needed.
+# ============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: 'Server URL the Android app will connect to (e.g. https://masomo.my-school.com or http://10.0.2.2:3000 for emulator)'
+        required: true
+        default: 'http://10.0.2.2:3000'
+      build_type:
+        description: 'Build type'
+        required: true
+        type: choice
+        default: 'release'
+        options:
+          - release
+          - debug
+
+permissions:
+  contents: read
+
+jobs:
+  # ==========================================================================
+  # DESKTOP BUILDS (Windows / macOS / Linux) — via Tauri
+  # ==========================================================================
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows
+            artifact: masomo-windows
+          - os: macos-latest
+            label: macos
+            artifact: masomo-macos
+          - os: ubuntu-latest
+            label: linux
+            artifact: masomo-linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock', 'src-tauri/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install JS dependencies
+        run: bun install
+
+      - name: Build Tauri app
+        run: bunx tauri build
+        env:
+          # Skip interactive prompts
+          CI: true
+
+      - name: Create .pkg installer (macOS only)
+        if: matrix.os == 'macos-latest'
+        run: |
+          productbuild --component \
+            src-tauri/target/release/bundle/macos/MASOMO.app \
+            /Applications \
+            MASOMO_${{ github.event.inputs.build_type }}.pkg || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            src-tauri/target/release/bundle/
+            *.pkg
+          retention-days: 30
+
+  # ==========================================================================
+  # ANDROID BUILD — via Capacitor
+  # ==========================================================================
+  android:
+    name: Android (.apk)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platforms;android-34
+            build-tools;34.0.0
+            platform-tools
+
+      - name: Install JS dependencies
+        run: bun install
+
+      - name: Update Capacitor server URL
+        run: |
+          # Replace localhost with the user-provided server URL
+          SERVER_URL="${{ github.event.inputs.server_url }}"
+          sed -i "s|url: 'http://localhost:3000'|url: '${SERVER_URL}'|" capacitor.config.ts
+          echo "Updated capacitor.config.ts server URL to: ${SERVER_URL}"
+          cat capacitor.config.ts
+
+      - name: Create web assets directory (required by Capacitor even in server.url mode)
+        run: |
+          mkdir -p out
+          echo '<html><body></body></html>' > out/index.html
+
+      - name: Add Android platform
+        run: bunx cap add android || true
+
+      - name: Sync Capacitor
+        run: bunx cap sync android
+
+      - name: Build debug APK
+        if: github.event.inputs.build_type == 'debug'
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+      - name: Build release APK
+        if: github.event.inputs.build_type == 'release'
+        working-directory: android
+        run: ./gradlew assembleRelease
+        env:
+          # For signed release builds, set these secrets:
+          #   ANDROID_KEYSTORE_BASE64  — base64-encoded .keystore file
+          #   ANDROID_KEY_ALIAS
+          #   ANDROID_KEY_PASSWORD
+          #   ANDROID_STORE_PASSWORD
+          # If not set, Gradle produces an unsigned release APK.
+          KEYSTORE_PATH: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: masomo-android
+          path: |
+            android/app/build/outputs/apk/**/*.apk
+          retention-days: 30
