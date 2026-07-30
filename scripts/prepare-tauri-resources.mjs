@@ -12,7 +12,7 @@
 // that can be launched with `node server.js` from inside the Tauri app.
 // ============================================================================
 import { execSync } from 'child_process'
-import { cpSync, mkdirSync, existsSync, rmSync, renameSync } from 'fs'
+import { cpSync, mkdirSync, existsSync, rmSync, renameSync, statSync, chmodSync } from 'fs'
 import { join, resolve } from 'path'
 
 const ROOT = resolve(import.meta.dirname, '..')
@@ -70,6 +70,57 @@ if (existsSync(DB_SRC)) {
   cpSync(DB_SRC, serverDbDir, { recursive: true })
 }
 
+// Step 6b: Ensure the Prisma engine binary is present in the standalone output.
+// Next.js standalone tracing sometimes misses the platform-specific Prisma
+// engine (e.g. query_engine-windows.dll.node). We copy the ENTIRE
+// node_modules/.prisma/client/ directory into the server's node_modules to
+// guarantee the engine is available at runtime.
+const prismaEngineSrc = join(ROOT, 'node_modules', '.prisma', 'client')
+const prismaEngineDst = join(SERVER_DIR, 'node_modules', '.prisma', 'client')
+if (existsSync(prismaEngineSrc)) {
+  console.log('→ Copying Prisma client engine → server/node_modules/.prisma/client/')
+  mkdirSync(join(SERVER_DIR, 'node_modules', '.prisma'), { recursive: true })
+  cpSync(prismaEngineSrc, prismaEngineDst, { recursive: true })
+} else {
+  console.log('⚠ Warning: node_modules/.prisma/client not found — run `bun run db:generate` before building!')
+}
+
+// Step 6c: Copy @prisma/client runtime (needed for imports at runtime)
+const prismaClientSrc = join(ROOT, 'node_modules', '@prisma', 'client')
+const prismaClientDst = join(SERVER_DIR, 'node_modules', '@prisma', 'client')
+if (existsSync(prismaClientSrc) && !existsSync(prismaClientDst)) {
+  console.log('→ Copying @prisma/client → server/node_modules/@prisma/client/')
+  mkdirSync(join(SERVER_DIR, 'node_modules', '@prisma'), { recursive: true })
+  cpSync(prismaClientSrc, prismaClientDst, { recursive: true })
+}
+
+// Step 6d: Copy prisma/schema.prisma (needed by Prisma client at runtime
+// for schema introspection in some code paths)
+const prismaSchemaSrc = join(ROOT, 'prisma', 'schema.prisma')
+const prismaSchemaDst = join(SERVER_DIR, 'prisma', 'schema.prisma')
+if (existsSync(prismaSchemaSrc)) {
+  console.log('→ Copying prisma/schema.prisma → server/prisma/')
+  mkdirSync(join(SERVER_DIR, 'prisma'), { recursive: true })
+  cpSync(prismaSchemaSrc, prismaSchemaDst)
+}
+
+// Step 6e: Copy the current Node.js binary into the server directory.
+// This ensures the Tauri app does NOT depend on the user having Node.js
+// installed. The bundled binary is used by main.rs to spawn `node server.js`.
+// On Windows: node.exe (~70 MB). On macOS/Linux: node (~80-90 MB).
+const nodeExeName = process.platform === 'win32' ? 'node.exe' : 'node'
+const nodeBinDir = join(SERVER_DIR, 'node-bin')
+const nodeBinDest = join(nodeBinDir, nodeExeName)
+mkdirSync(nodeBinDir, { recursive: true })
+console.log(`→ Copying Node.js binary → server/node-bin/${nodeExeName}`)
+console.log(`   Source: ${process.execPath}`)
+cpSync(process.execPath, nodeBinDest)
+if (process.platform !== 'win32') {
+  chmodSync(nodeBinDest, 0o755) // ensure executable on Unix
+}
+const nodeSizeMB = (statSync(nodeBinDest).size / 1024 / 1024).toFixed(1)
+console.log(`   Node binary size: ${nodeSizeMB} MB`)
+
 // Step 7: Create a placeholder frontendDist (Tauri requires it even though
 // we load from localhost:3000)
 const placeholderDir = join(RESOURCES_DIR, 'placeholder')
@@ -92,4 +143,5 @@ console.log('   server.js: ✓')
 console.log('   static:    ' + (existsSync(serverStaticDir) ? '✓' : '✗'))
 console.log('   public:    ' + (existsSync(serverPublicDir) ? '✓' : '✗'))
 console.log('   db:        ' + (existsSync(serverDbDir) ? '✓' : '✗'))
+console.log('   node-bin:  ' + (existsSync(nodeBinDest) ? `✓ (${nodeSizeMB} MB)` : '✗'))
 console.log('')
