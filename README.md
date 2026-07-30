@@ -1,96 +1,79 @@
-# MASOMO - CORRECTION COMPLÈTE (v7 - TOUS LES FICHIERS)
+# MASOMO - Workflow avec auto-fix frontendDist (v8)
 
-## 🎯 PROBLÈME ACTUEL
+## 🎯 PROBLÈME
 
 Erreur Windows : `Unable to find your web assets... frontendDist is set to "../src-tauri/resources/placeholder"`
 
 ## 🔍 CAUSE
 
-Sur GitHub, vous avez encore l'ANCIEN `tauri.conf.json` avec le mauvais chemin `frontendDist`. Ce ZIP contient **TOUS les fichiers corrigés** pour résoudre définitivement tous les problèmes.
+Sur GitHub, `src-tauri/tauri.conf.json` a ENCORE l'ancien chemin `"../src-tauri/resources/placeholder"`. Le workflow précédent ne le corrigeait pas automatiquement.
+
+## ✅ SOLUTION
+
+Ce workflow contient une nouvelle étape **"FORCE fix frontendDist"** qui :
+1. Lit `src-tauri/tauri.conf.json`
+2. Remplace AUTOMATIQUEMENT n'importe quelle valeur de `frontendDist` par `"resources/placeholder"` (le bon chemin)
+3. Crée `placeholder/index.html` s'il manque
+
+**Avantage** : Même si votre `tauri.conf.json` local a le mauvais chemin, le workflow le corrigera sur GitHub Actions avant le build.
 
 ---
 
-## 📦 CONTENU COMPLET DU ZIP (16 fichiers)
+## 📦 CONTENU DU ZIP
 
 ```
-masomo-all-fixes/
-├── Cargo.toml                                    ← [package] + [[bin]] + [workspace]
-├── .gitignore                                    ← placeholder/ plus ignoré
-├── src/
-│   └── main.rs                                   ← DUMMY (fn main() {})
-├── .github/workflows/
-│   └── build-native.yml                          ← Workflow corrigé
-├── scripts/
-│   └── prepare-tauri-resources.mjs               ← Génère index.html si manquant
-└── src-tauri/                                    ← DOSSIER COMPLET
-    ├── Cargo.toml                                ← Vrai package Tauri
-    ├── build.rs
-    ├── tauri.conf.json                           ← frontendDist: "resources/placeholder"
-    ├── icons/ (5 fichiers)
-    ├── src/
-    │   └── main.rs                               ← Code Rust (serveur local)
-    ├── capabilities/
-    │   └── default.json
-    └── resources/
-        └── placeholder/
-            └── index.html                        ← Écran de chargement
+masomo-force-fix/
+├── README.md
+└── .github/workflows/
+    └── build-native.yml     ← Workflow avec auto-fix
 ```
-
----
-
-## ✅ TOUTES LES CORRECTIONS
-
-| # | Problème | Correction |
-|---|----------|------------|
-| 1 | `failed to watch Cargo.toml` | `Cargo.toml` racine créé |
-| 2 | `No package info` | `[package]` section ajoutée |
-| 3 | `no targets specified` | `[[bin]]` dummy + `src/main.rs` |
-| 4 | `Unable to find web assets` | `frontendDist: "resources/placeholder"` (chemin corrigé) |
-| 5 | `placeholder/index.html` manquant | Fichier ajouté + plus ignoré par git |
-| 6 | Android `cap add` échoue | `\|\| true` ajouté |
-| 7 | favicon.ico format v3 | ICO multi-résolution |
 
 ---
 
 ## 🚀 INSTALLATION
 
-### Étape 1 — Supprimez l'ancien src-tauri (OPTIONNEL mais recommandé)
+### Étape 1 — Extrayez le ZIP à la racine de votre projet
 
-Dans VSCode, si vous avez des conflits, supprimez le dossier `src-tauri/` entier puis extrayez le ZIP.
+Le fichier `.github/workflows/build-native.yml` est remplacé.
 
-### Étape 2 — Extrayez le ZIP à la racine de votre projet
-
-Le ZIP va REMPLACER tous les fichiers listés ci-dessus.
-
-### Étape 3 — Vérifiez dans VSCode
-
-Ouvrez `src-tauri/tauri.conf.json` et vérifiez la ligne :
-```json
-"frontendDist": "resources/placeholder"
-```
-(SI vous voyez `"../src-tauri/resources/placeholder"`, c'est que l'extraction n'a pas remplacé le fichier — supprimez-le manuellement et re-extrayez)
-
-### Étape 4 — Commandes Git (PowerShell)
+### Étape 2 — Commandes Git (PowerShell)
 
 ```powershell
 git add -A
 ```
 
 ```powershell
-git commit -m "fix: correction complète - frontendDist + Cargo.toml + placeholder"
+git commit -m "fix: workflow auto-corrige frontendDist avant le build Tauri"
 ```
 
 ```powershell
 git push origin main --force
 ```
 
-### Étape 5 — Relancez le workflow
+### Étape 3 — Relancez le workflow
 
 1. GitHub → votre dépôt → Actions
 2. "Build Native Apps" → "Run workflow"
 3. server_url : `http://localhost:3000`
 4. build_type : `release`
 5. Run workflow
+
+---
+
+## 🔧 CE QUE FAIT LA NOUVELLE ÉTAPE
+
+Avant le build Tauri, le workflow exécute :
+
+```bash
+sed -i 's|"frontendDist": *"[^"]*"|"frontendDist": "resources/placeholder"|' src-tauri/tauri.conf.json
+```
+
+Cette commande :
+- Cherche la ligne `"frontendDist": "..."`
+- Remplace la valeur par `"resources/placeholder"` (le bon chemin relatif à `src-tauri/`)
+- Crée aussi `placeholder/index.html` s'il n'existe pas
+
+**Résultat** : le build Tauri trouvera toujours les web assets, peu importe ce qu'il y a dans `tauri.conf.json` au départ.
 
 ---
 

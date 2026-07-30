@@ -167,6 +167,50 @@ jobs:
           echo "=== Verifying src-tauri/Cargo.toml ==="
           head -5 src-tauri/Cargo.toml
 
+      - name: FORCE fix frontendDist and ensure placeholder/index.html
+        shell: bash
+        run: |
+          echo "=== FORCE-fixing src-tauri/tauri.conf.json frontendDist ==="
+          # Whatever the current value is, replace it with the correct relative path.
+          # The path is relative to src-tauri/, so "resources/placeholder" points to
+          # src-tauri/resources/placeholder/index.html
+          if [ -f src-tauri/tauri.conf.json ]; then
+            echo "BEFORE:"
+            grep frontendDist src-tauri/tauri.conf.json || echo "  (no frontendDist line found)"
+            # Use sed to replace any frontendDist value with the correct one
+            # Works on both Linux/macOS (sed -i) and Windows Git Bash
+            sed -i 's|"frontendDist": *"[^"]*"|"frontendDist": "resources/placeholder"|' src-tauri/tauri.conf.json
+            echo "AFTER:"
+            grep frontendDist src-tauri/tauri.conf.json
+          else
+            echo "✗ src-tauri/tauri.conf.json not found!"
+            exit 1
+          fi
+
+          echo ""
+          echo "=== Ensuring src-tauri/resources/placeholder/index.html exists ==="
+          mkdir -p src-tauri/resources/placeholder
+          if [ ! -f src-tauri/resources/placeholder/index.html ]; then
+            echo "→ Creating placeholder/index.html"
+            cat > src-tauri/resources/placeholder/index.html << 'HTMLEOF'
+          <!DOCTYPE html>
+          <html lang="fr"><head><meta charset="UTF-8"><title>MASOMO</title></head>
+          <body style="background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif">
+          <div style="text-align:center"><h1 style="color:#10b981;font-size:3rem">MASOMO</h1><p>Démarrage...</p></div>
+          </body></html>
+          HTMLEOF
+            echo "✓ Created placeholder/index.html"
+          else
+            echo "✓ placeholder/index.html already exists ($(wc -c < src-tauri/resources/placeholder/index.html) bytes)"
+          fi
+
+          echo ""
+          echo "=== Final verification ==="
+          echo "tauri.conf.json frontendDist:"
+          grep frontendDist src-tauri/tauri.conf.json
+          echo "placeholder/index.html:"
+          ls -la src-tauri/resources/placeholder/index.html
+
       - name: Build Tauri app
         run: bunx tauri build
         env:
