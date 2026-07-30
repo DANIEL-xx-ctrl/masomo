@@ -2,19 +2,11 @@ name: Build Native Apps
 
 # ============================================================================
 # Build MASOMO native installers for all platforms:
-#   - Windows: .exe (NSIS) + .msi (WiX) — via Tauri (bundled Node.js server)
-#   - macOS:   .dmg + .pkg               — via Tauri (bundled Node.js server)
-#   - Linux:   .deb + .AppImage          — via Tauri (bundled Node.js server)
-#   - Android: .apk                       — via Capacitor (connects to remote URL)
-#   - iOS:     .ipa (unsigned)            — via Capacitor (connects to remote URL)
-#
-# DESKTOP (Windows/macOS/Linux): The app bundles a Node.js binary + Next.js
-#   standalone server. On launch, Tauri spawns `node server.js` on
-#   127.0.0.1:3000 and loads it in the webview. NO system Node.js needed.
-#
-# MOBILE (Android/iOS): The app connects to a REMOTE server URL (provided
-#   via the server_url input). Mobile OSes cannot spawn child processes,
-#   so a local server is not possible.
+#   - Windows: .exe (NSIS) + .msi (WiX)       — via Tauri
+#   - macOS:   .dmg + .pkg                    — via Tauri
+#   - Linux:   .deb + .AppImage               — via Tauri
+#   - Android: .apk (debug + release)         — via Capacitor
+#   - iOS:     .ipa (unsigned)                — via Capacitor
 #
 # Usage:
 #   1. Push this project to GitHub
@@ -46,7 +38,6 @@ permissions:
 jobs:
   # ==========================================================================
   # DESKTOP BUILDS (Windows / macOS / Linux) — via Tauri
-  # Bundles Node.js binary so the local server runs on 127.0.0.1
   # ==========================================================================
   desktop:
     name: Desktop (${{ matrix.label }})
@@ -88,8 +79,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.toml', 'Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Install Linux dependencies
@@ -107,116 +97,13 @@ jobs:
       - name: Install JS dependencies
         run: bun install --frozen-lockfile || bun install
 
-      - name: Generate Prisma client
-        run: bun run db:generate
-
-      - name: Prepare Tauri resources (build Next.js + copy server + bundle Node.js)
+      - name: Prepare Tauri resources (build Next.js + copy server)
         run: node scripts/prepare-tauri-resources.mjs
-
-      - name: Verify bundled Node.js binary
-        shell: bash
-        run: |
-          echo "=== Checking bundled Node binary ==="
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            ls -la src-tauri/resources/server/node-bin/node.exe || echo "MISSING node.exe"
-          else
-            ls -la src-tauri/resources/server/node-bin/node || echo "MISSING node"
-            chmod +x src-tauri/resources/server/node-bin/node 2>/dev/null || true
-          fi
-
-      - name: Verify placeholder index.html exists (Tauri frontendDist)
-        shell: bash
-        run: |
-          echo "=== Checking placeholder/index.html ==="
-          if [ ! -f src-tauri/resources/placeholder/index.html ]; then
-            echo "✗ MISSING: src-tauri/resources/placeholder/index.html"
-            echo "  Tauri build will fail. Creating it now..."
-            mkdir -p src-tauri/resources/placeholder
-            cat > src-tauri/resources/placeholder/index.html << 'HTMLEOF'
-          <!DOCTYPE html>
-          <html lang="fr"><head><meta charset="UTF-8"><title>MASOMO</title></head>
-          <body style="background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif">
-          <div style="text-align:center"><h1 style="color:#10b981;font-size:3rem">MASOMO</h1><p>Démarrage...</p></div>
-          </body></html>
-          HTMLEOF
-            echo "✓ Created placeholder/index.html"
-          else
-            echo "✓ placeholder/index.html exists ($(wc -c < src-tauri/resources/placeholder/index.html) bytes)"
-          fi
-
-      - name: Verify Cargo.toml configuration (root + src-tauri)
-        shell: bash
-        run: |
-          echo "=== Verifying root Cargo.toml (MUST have [package] + [workspace]) ==="
-          if [ ! -f Cargo.toml ]; then
-            echo "✗ MISSING: root Cargo.toml"
-            echo "  Tauri requires a Cargo.toml at the project root for its file watcher."
-            exit 1
-          fi
-          cat Cargo.toml
-          if ! grep -q "\[package\]" Cargo.toml; then
-            echo "✗ ERROR: root Cargo.toml missing [package] section!"
-            exit 1
-          fi
-          if ! grep -q "\[workspace\]" Cargo.toml; then
-            echo "✗ ERROR: root Cargo.toml missing [workspace] section!"
-            exit 1
-          fi
-          echo "✓ Root Cargo.toml OK ([package] + [workspace])"
-          echo ""
-          echo "=== Verifying src-tauri/Cargo.toml ==="
-          head -5 src-tauri/Cargo.toml
-
-      - name: FORCE fix frontendDist and ensure placeholder/index.html
-        shell: bash
-        run: |
-          echo "=== FORCE-fixing src-tauri/tauri.conf.json frontendDist ==="
-          # Whatever the current value is, replace it with the correct relative path.
-          # The path is relative to src-tauri/, so "resources/placeholder" points to
-          # src-tauri/resources/placeholder/index.html
-          if [ -f src-tauri/tauri.conf.json ]; then
-            echo "BEFORE:"
-            grep frontendDist src-tauri/tauri.conf.json || echo "  (no frontendDist line found)"
-            # Use sed to replace any frontendDist value with the correct one
-            # Works on both Linux/macOS (sed -i) and Windows Git Bash
-            sed -i 's|"frontendDist": *"[^"]*"|"frontendDist": "resources/placeholder"|' src-tauri/tauri.conf.json
-            echo "AFTER:"
-            grep frontendDist src-tauri/tauri.conf.json
-          else
-            echo "✗ src-tauri/tauri.conf.json not found!"
-            exit 1
-          fi
-
-          echo ""
-          echo "=== Ensuring src-tauri/resources/placeholder/index.html exists ==="
-          mkdir -p src-tauri/resources/placeholder
-          if [ ! -f src-tauri/resources/placeholder/index.html ]; then
-            echo "→ Creating placeholder/index.html"
-            cat > src-tauri/resources/placeholder/index.html << 'HTMLEOF'
-          <!DOCTYPE html>
-          <html lang="fr"><head><meta charset="UTF-8"><title>MASOMO</title></head>
-          <body style="background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif">
-          <div style="text-align:center"><h1 style="color:#10b981;font-size:3rem">MASOMO</h1><p>Démarrage...</p></div>
-          </body></html>
-          HTMLEOF
-            echo "✓ Created placeholder/index.html"
-          else
-            echo "✓ placeholder/index.html already exists ($(wc -c < src-tauri/resources/placeholder/index.html) bytes)"
-          fi
-
-          echo ""
-          echo "=== Final verification ==="
-          echo "tauri.conf.json frontendDist:"
-          grep frontendDist src-tauri/tauri.conf.json
-          echo "placeholder/index.html:"
-          ls -la src-tauri/resources/placeholder/index.html
 
       - name: Build Tauri app
         run: bunx tauri build
         env:
           CI: true
-          # Prevent beforeBuildCommand from re-running prepare-tauri-resources.mjs
-          # (we already ran it above, so skip it to save time)
           TAURI_SKIP_BEFORE_BUILD_COMMAND: 'true'
 
       - name: Create .pkg installer (macOS only)
@@ -240,7 +127,7 @@ jobs:
           if-no-files-found: warn
 
   # ==========================================================================
-  # ANDROID BUILD — via Capacitor (connects to remote server URL)
+  # ANDROID BUILD — via Capacitor
   # ==========================================================================
   android:
     name: Android (.apk)
@@ -318,20 +205,17 @@ jobs:
           if-no-files-found: warn
 
   # ==========================================================================
-  # iOS BUILD — via Capacitor (connects to remote server URL)
+  # iOS BUILD — via Capacitor
   #
   # Produces an unsigned .ipa. To install on a physical device you must:
   #   1. Have an Apple Developer account ($99/year)
   #   2. Set these repository secrets:
-  #      - IOS_P12_BASE64       (signing certificate, base64-encoded)
-  #      - IOS_P12_PASSWORD     (certificate password)
-  #      - IOS_PROVISIONING_PROFILE_BASE64 (provisioning profile, base64)
-  #      - IOS_TEAM_ID          (Apple Developer Team ID, e.g. ABCD1234EF)
-  #   3. Re-run the workflow — the signing step will activate automatically.
+  #      - IOS_P12_BASE64, IOS_P12_PASSWORD
+  #      - IOS_PROVISIONING_PROFILE_BASE64, IOS_TEAM_ID
+  #   3. Re-run the workflow — signing activates automatically.
   #
-  # Without signing secrets, the .ipa is still produced but can only be
-  # installed via sideloading tools (AltStore, Sideloadly) or run in the
-  # iOS Simulator (use server_url = http://localhost:3000).
+  # Without signing secrets, the .ipa can only be installed via sideloading
+  # tools (AltStore, Sideloadly) or run in the iOS Simulator.
   # ==========================================================================
   ios:
     name: iOS (.ipa)
@@ -364,7 +248,6 @@ jobs:
       - name: Update Capacitor server URL
         run: |
           SERVER_URL="${{ github.event.inputs.server_url }}"
-          # macOS sed needs -i '' (empty string for no backup)
           sed -i '' "s|url: 'http://localhost:3000'|url: '${SERVER_URL}'|" capacitor.config.ts
           echo "Updated capacitor.config.ts:"
           cat capacitor.config.ts
@@ -380,7 +263,6 @@ jobs:
       - name: Sync Capacitor
         run: bunx cap sync ios
 
-      # ---- Code signing (only if secrets are set) ----
       - name: Import signing certificate
         if: env.IOS_P12_BASE64 != ''
         env:
@@ -436,8 +318,6 @@ jobs:
 
       - name: Export IPA
         working-directory: ios
-        env:
-          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
         run: |
           mkdir -p build/Payload
           cp -r build/App.xcarchive/Products/Applications/App.app build/Payload/
