@@ -1,20 +1,26 @@
 # ============================================================================
 # Root Cargo manifest
 #
-# This file MUST exist at the project root. Tauri v2's file watcher requires
-# a Cargo.toml here (otherwise: "failed to watch .../Cargo.toml"), AND Tauri
-# requires a [package] section to read version info (otherwise:
-# "No package info in the config file").
+# This file MUST exist at the project root. Tauri v2 requires:
+#   1. A Cargo.toml at the root (for its file watcher / cargo metadata)
+#   2. A [package] section (otherwise: "No package info in the config file")
+#   3. At least one target (otherwise: "no targets specified in the manifest")
 #
-# So we have BOTH [package] and [workspace]. The root package has NO targets
-# (no src/, no lib, no bin) so Cargo never builds it. The actual Tauri app
-# lives in src-tauri/ and is built via src-tauri/Cargo.toml.
+# This package has a dummy [[bin]] target (src/main.rs with `fn main() {}`)
+# that is NEVER compiled into the final app. The actual MASOMO application
+# lives in src-tauri/ and is built via `cargo build` in that subdirectory.
 # ============================================================================
 [package]
 name = "masomo-workspace"
 version = "0.1.0"
 edition = "2021"
 publish = false
+
+# Explicitly declare a dummy binary target so Cargo accepts this manifest.
+# Without this, Cargo errors: "no targets specified in the manifest".
+[[bin]]
+name = "masomo-dummy"
+path = "src/main.rs"
 
 [workspace]
 members = ["src-tauri"]

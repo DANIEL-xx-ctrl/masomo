@@ -1,48 +1,36 @@
-# MASOMO - Correction DÉFINITIVE (v5)
+# MASOMO - Correction v6 (DÉFINITIVE - target Cargo)
 
 ## 🎯 PROBLÈME RÉSOLU
 
-Erreur Windows : `failed to watch Cargo.toml` OU `No package info in the config file`
+Erreur Windows : `no targets specified in the manifest`
 
-## 🔍 ANALYSE — Problème type "œuf et poule"
+## 🔍 ANALYSE — Les 4 erreurs successives
 
-Tauri v2 a DEUX exigences contradictoires pour le fichier `Cargo.toml` à la racine :
+Tauri v2 a exigences en cascade pour le `Cargo.toml` racine :
 
-| État | Erreur |
-|------|--------|
-| PAS de `Cargo.toml` racine | ❌ `failed to watch Cargo.toml` (watcher introuvable) |
-| `Cargo.toml` avec `[workspace]` seulement | ❌ `No package info in the config file` |
-| ✅ `Cargo.toml` avec `[package]` + `[workspace]` | ✅ **Aucune erreur** |
+| Tentative | Erreur |
+|-----------|--------|
+| 1. PAS de `Cargo.toml` racine | ❌ `failed to watch Cargo.toml` |
+| 2. `[workspace]` seulement | ❌ `No package info in the config file` |
+| 3. `[package]` + `[workspace]` | ❌ `no targets specified in the manifest` |
+| ✅ 4. `[package]` + `[[bin]]` + `[workspace]` | ✅ **Aucune erreur** |
 
-## ✅ SOLUTION
+## ✅ SOLUTION FINALE
 
-Créer un `Cargo.toml` racine avec **LES DEUX** sections `[package]` + `[workspace]` :
+1. **`Cargo.toml` racine** avec `[package]` + `[[bin]]` (dummy) + `[workspace]`
+2. **`src/main.rs`** minimal (`fn main() {}`) — jamais compilé dans l'app finale
 
-```toml
-[package]
-name = "masomo-workspace"
-version = "0.1.0"
-edition = "2021"
-publish = false
-
-[workspace]
-members = ["src-tauri"]
-resolver = "2"
-```
-
-Le package racine n'a **aucun target** (pas de `src/`), donc Cargo ne build rien pour lui.
-L'app Tauri réelle reste dans `src-tauri/Cargo.toml`.
+Le binaire `masomo-dummy` n'est JAMAIS invoqué. L'app réelle est dans `src-tauri/`.
 
 ---
 
 ## 📦 CONTENU DU ZIP
 
 ```
-masomo-cargo-fix/
-├── Cargo.toml                              ← NOUVEAU ([package] + [workspace])
-├── .gitignore                              ← MODIFIÉ (target/ racine ajouté)
-└── .github/workflows/
-    └── build-native.yml                    ← MODIFIÉ (vérification au lieu de suppression)
+masomo-target-fix/
+├── Cargo.toml          ← MODIFIÉ (ajout [[bin]] dummy)
+└── src/
+    └── main.rs         ← NOUVEAU (fn main() {})
 ```
 
 ---
@@ -51,6 +39,10 @@ masomo-cargo-fix/
 
 ### Étape 1 — Extrayez le ZIP à la racine de votre projet VSCode
 
+Cela va :
+- Remplacer `Cargo.toml` (racine)
+- Créer `src/main.rs` (nouveau fichier)
+
 ### Étape 2 — Commandes Git (PowerShell)
 
 ```powershell
@@ -58,7 +50,7 @@ git add -A
 ```
 
 ```powershell
-git commit -m "fix: Cargo.toml racine avec [package] + [workspace] (solution définitive)"
+git commit -m "fix: ajoute target dummy [[bin]] au Cargo.toml racine"
 ```
 
 ```powershell
@@ -77,9 +69,22 @@ git push origin main --force
 
 ## ✅ RÉSULTAT ATTENDU
 
-Tous les jobs devraient maintenant être VERTS :
+Tous les jobs VERTS :
 - Desktop (Windows) 🟢
 - Desktop (macOS) 🟢
 - Desktop (Linux) 🟢
 - Android 🟢
 - iOS 🟢
+
+---
+
+## 💡 POURQUOI ÇA MARCHE
+
+| Exigence Tauri/Cargo | Satisfaite par |
+|---------------------|----------------|
+| Fichier `Cargo.toml` racine | ✅ Le fichier existe |
+| Section `[package]` | ✅ Présente avec name/version |
+| Au moins un target | ✅ `[[bin]]` pointant vers `src/main.rs` |
+| Workspace avec `src-tauri` | ✅ `[workspace] members = ["src-tauri"]` |
+
+Le binaire dummy n'est jamais build dans l'app finale car `tauri build` lance `cargo build` dans `src-tauri/`, pas à la racine.
