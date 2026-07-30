@@ -88,7 +88,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.toml') }}
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.toml', 'Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Install Linux dependencies
@@ -121,6 +122,26 @@ jobs:
           else
             ls -la src-tauri/resources/server/node-bin/node || echo "MISSING node"
             chmod +x src-tauri/resources/server/node-bin/node 2>/dev/null || true
+          fi
+
+      - name: Verify placeholder index.html exists (Tauri frontendDist)
+        shell: bash
+        run: |
+          echo "=== Checking placeholder/index.html ==="
+          if [ ! -f src-tauri/resources/placeholder/index.html ]; then
+            echo "✗ MISSING: src-tauri/resources/placeholder/index.html"
+            echo "  Tauri build will fail. Creating it now..."
+            mkdir -p src-tauri/resources/placeholder
+            cat > src-tauri/resources/placeholder/index.html << 'HTMLEOF'
+          <!DOCTYPE html>
+          <html lang="fr"><head><meta charset="UTF-8"><title>MASOMO</title></head>
+          <body style="background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif">
+          <div style="text-align:center"><h1 style="color:#10b981;font-size:3rem">MASOMO</h1><p>Démarrage...</p></div>
+          </body></html>
+          HTMLEOF
+            echo "✓ Created placeholder/index.html"
+          else
+            echo "✓ placeholder/index.html exists ($(wc -c < src-tauri/resources/placeholder/index.html) bytes)"
           fi
 
       - name: Build Tauri app
@@ -204,7 +225,7 @@ jobs:
           echo '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>' > out/index.html
 
       - name: Add Android platform
-        run: bunx cap add android
+        run: bunx cap add android || true
 
       - name: Sync Capacitor
         run: bunx cap sync android

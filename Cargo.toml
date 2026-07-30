@@ -1,0 +1,12 @@
+# ============================================================================
+# Root Cargo workspace
+#
+# This file exists at the project root so that Tauri's file watcher can find
+# a Cargo.toml here. Without it, `tauri build` fails on Windows with:
+#   "failed to watch .../Cargo.toml: Input watch path is neither a file nor a directory."
+#
+# The actual Tauri app code lives in src-tauri/.
+# ============================================================================
+[workspace]
+members = ["src-tauri"]
+resolver = "2"
