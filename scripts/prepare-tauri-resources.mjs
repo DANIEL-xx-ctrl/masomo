@@ -12,7 +12,7 @@
 // that can be launched with `node server.js` from inside the Tauri app.
 // ============================================================================
 import { execSync } from 'child_process'
-import { cpSync, mkdirSync, existsSync, rmSync, renameSync, statSync, chmodSync, writeFileSync } from 'fs'
+import { cpSync, mkdirSync, existsSync, rmSync, renameSync, statSync, chmodSync } from 'fs'
 import { join, resolve } from 'path'
 
 const ROOT = resolve(import.meta.dirname, '..')
@@ -122,42 +122,10 @@ const nodeSizeMB = (statSync(nodeBinDest).size / 1024 / 1024).toFixed(1)
 console.log(`   Node binary size: ${nodeSizeMB} MB`)
 
 // Step 7: Create a placeholder frontendDist (Tauri requires it even though
-// we load from localhost:3000). This MUST contain an index.html, otherwise
-// `tauri build` fails with "no index.html in frontendDist".
+// we load from localhost:3000)
 const placeholderDir = join(RESOURCES_DIR, 'placeholder')
-const placeholderIndex = join(placeholderDir, 'index.html')
-mkdirSync(placeholderDir, { recursive: true })
-if (!existsSync(placeholderIndex)) {
-  console.log('→ Creating placeholder/index.html (loading screen)')
-  writeFileSync(placeholderIndex, `<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MASOMO - Démarrage...</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:2rem}
-.c{max-width:560px;text-align:center}
-.l{font-size:3rem;font-weight:800;color:#10b981;letter-spacing:-0.02em;margin-bottom:.5rem}
-.s{font-size:1.1rem;color:#94a3b8;margin-bottom:2rem}
-.spin{width:48px;height:48px;border:4px solid #1e293b;border-top-color:#10b981;border-radius:50%;animation:sp 1s linear infinite;margin:0 auto 2rem}
-@keyframes sp{to{transform:rotate(360deg)}}
-.e{display:none;margin-top:1.5rem;padding:1rem;background:#7f1d1d;border-radius:8px;color:#fecaca;font-size:.9rem;text-align:left}
-</style>
-</head>
-<body>
-<div class="c">
-<div class="l">MASOMO</div>
-<div class="s">Démarrage du serveur local...</div>
-<div class="spin"></div>
-<div class="e" id="err">Le serveur n'a pas pu démarrer. Vérifiez que Node.js est installé sur votre machine.</div>
-</div>
-<script>
-setTimeout(function(){document.getElementById('err').style.display='block';document.querySelector('.spin').style.display='none';},15000);
-</script>
-</body>
-</html>`)
+if (!existsSync(placeholderDir)) {
+  mkdirSync(placeholderDir, { recursive: true })
 }
 
 // Verify server.js exists
