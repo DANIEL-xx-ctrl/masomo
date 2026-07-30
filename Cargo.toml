@@ -1,0 +1,21 @@
+# ============================================================================
+# Root Cargo manifest
+#
+# This file MUST exist at the project root. Tauri v2's file watcher requires
+# a Cargo.toml here (otherwise: "failed to watch .../Cargo.toml"), AND Tauri
+# requires a [package] section to read version info (otherwise:
+# "No package info in the config file").
+#
+# So we have BOTH [package] and [workspace]. The root package has NO targets
+# (no src/, no lib, no bin) so Cargo never builds it. The actual Tauri app
+# lives in src-tauri/ and is built via src-tauri/Cargo.toml.
+# ============================================================================
+[package]
+name = "masomo-workspace"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+members = ["src-tauri"]
+resolver = "2"

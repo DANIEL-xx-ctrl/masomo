@@ -60,8 +60,11 @@ agent-ctx/
 
 # Tauri build artifacts
 src-tauri/target/
+target/
 src-tauri/resources/server/
-src-tauri/resources/placeholder/
+# NOTE: src-tauri/resources/placeholder/ MUST be committed — it contains
+# the loading screen (index.html) that Tauri uses as frontendDist.
+# Without it, `tauri build` fails on GitHub Actions.
 
 # Capacitor platforms
 android/

@@ -144,34 +144,28 @@ jobs:
             echo "✓ placeholder/index.html exists ($(wc -c < src-tauri/resources/placeholder/index.html) bytes)"
           fi
 
-      - name: Remove root Cargo.toml if exists (causes 'No package info' error)
+      - name: Verify Cargo.toml configuration (root + src-tauri)
         shell: bash
         run: |
-          echo "=== Checking for root Cargo.toml (MUST NOT EXIST) ==="
-          if [ -f Cargo.toml ]; then
-            echo "✗ FOUND root Cargo.toml — this causes 'No package info in the config file'"
-            echo "  Content:"
-            cat Cargo.toml
-            echo "  Deleting it now..."
-            rm -f Cargo.toml
-            echo "✓ Deleted root Cargo.toml"
-          else
-            echo "✓ No root Cargo.toml (correct)"
-          fi
-          echo ""
-          echo "=== Verifying src-tauri/Cargo.toml has [package] section ==="
-          if [ -f src-tauri/Cargo.toml ]; then
-            head -5 src-tauri/Cargo.toml
-            if grep -q "\[package\]" src-tauri/Cargo.toml; then
-              echo "✓ src-tauri/Cargo.toml has [package] section"
-            else
-              echo "✗ ERROR: src-tauri/Cargo.toml missing [package] section!"
-              exit 1
-            fi
-          else
-            echo "✗ ERROR: src-tauri/Cargo.toml not found!"
+          echo "=== Verifying root Cargo.toml (MUST have [package] + [workspace]) ==="
+          if [ ! -f Cargo.toml ]; then
+            echo "✗ MISSING: root Cargo.toml"
+            echo "  Tauri requires a Cargo.toml at the project root for its file watcher."
             exit 1
           fi
+          cat Cargo.toml
+          if ! grep -q "\[package\]" Cargo.toml; then
+            echo "✗ ERROR: root Cargo.toml missing [package] section!"
+            exit 1
+          fi
+          if ! grep -q "\[workspace\]" Cargo.toml; then
+            echo "✗ ERROR: root Cargo.toml missing [workspace] section!"
+            exit 1
+          fi
+          echo "✓ Root Cargo.toml OK ([package] + [workspace])"
+          echo ""
+          echo "=== Verifying src-tauri/Cargo.toml ==="
+          head -5 src-tauri/Cargo.toml
 
       - name: Build Tauri app
         run: bunx tauri build
