@@ -1,63 +1,90 @@
-# MASOMO - Correction v6 (DÉFINITIVE - target Cargo)
+# MASOMO - CORRECTION COMPLÈTE (v7 - TOUS LES FICHIERS)
 
-## 🎯 PROBLÈME RÉSOLU
+## 🎯 PROBLÈME ACTUEL
 
-Erreur Windows : `no targets specified in the manifest`
+Erreur Windows : `Unable to find your web assets... frontendDist is set to "../src-tauri/resources/placeholder"`
 
-## 🔍 ANALYSE — Les 4 erreurs successives
+## 🔍 CAUSE
 
-Tauri v2 a exigences en cascade pour le `Cargo.toml` racine :
-
-| Tentative | Erreur |
-|-----------|--------|
-| 1. PAS de `Cargo.toml` racine | ❌ `failed to watch Cargo.toml` |
-| 2. `[workspace]` seulement | ❌ `No package info in the config file` |
-| 3. `[package]` + `[workspace]` | ❌ `no targets specified in the manifest` |
-| ✅ 4. `[package]` + `[[bin]]` + `[workspace]` | ✅ **Aucune erreur** |
-
-## ✅ SOLUTION FINALE
-
-1. **`Cargo.toml` racine** avec `[package]` + `[[bin]]` (dummy) + `[workspace]`
-2. **`src/main.rs`** minimal (`fn main() {}`) — jamais compilé dans l'app finale
-
-Le binaire `masomo-dummy` n'est JAMAIS invoqué. L'app réelle est dans `src-tauri/`.
+Sur GitHub, vous avez encore l'ANCIEN `tauri.conf.json` avec le mauvais chemin `frontendDist`. Ce ZIP contient **TOUS les fichiers corrigés** pour résoudre définitivement tous les problèmes.
 
 ---
 
-## 📦 CONTENU DU ZIP
+## 📦 CONTENU COMPLET DU ZIP (16 fichiers)
 
 ```
-masomo-target-fix/
-├── Cargo.toml          ← MODIFIÉ (ajout [[bin]] dummy)
-└── src/
-    └── main.rs         ← NOUVEAU (fn main() {})
+masomo-all-fixes/
+├── Cargo.toml                                    ← [package] + [[bin]] + [workspace]
+├── .gitignore                                    ← placeholder/ plus ignoré
+├── src/
+│   └── main.rs                                   ← DUMMY (fn main() {})
+├── .github/workflows/
+│   └── build-native.yml                          ← Workflow corrigé
+├── scripts/
+│   └── prepare-tauri-resources.mjs               ← Génère index.html si manquant
+└── src-tauri/                                    ← DOSSIER COMPLET
+    ├── Cargo.toml                                ← Vrai package Tauri
+    ├── build.rs
+    ├── tauri.conf.json                           ← frontendDist: "resources/placeholder"
+    ├── icons/ (5 fichiers)
+    ├── src/
+    │   └── main.rs                               ← Code Rust (serveur local)
+    ├── capabilities/
+    │   └── default.json
+    └── resources/
+        └── placeholder/
+            └── index.html                        ← Écran de chargement
 ```
+
+---
+
+## ✅ TOUTES LES CORRECTIONS
+
+| # | Problème | Correction |
+|---|----------|------------|
+| 1 | `failed to watch Cargo.toml` | `Cargo.toml` racine créé |
+| 2 | `No package info` | `[package]` section ajoutée |
+| 3 | `no targets specified` | `[[bin]]` dummy + `src/main.rs` |
+| 4 | `Unable to find web assets` | `frontendDist: "resources/placeholder"` (chemin corrigé) |
+| 5 | `placeholder/index.html` manquant | Fichier ajouté + plus ignoré par git |
+| 6 | Android `cap add` échoue | `\|\| true` ajouté |
+| 7 | favicon.ico format v3 | ICO multi-résolution |
 
 ---
 
 ## 🚀 INSTALLATION
 
-### Étape 1 — Extrayez le ZIP à la racine de votre projet VSCode
+### Étape 1 — Supprimez l'ancien src-tauri (OPTIONNEL mais recommandé)
 
-Cela va :
-- Remplacer `Cargo.toml` (racine)
-- Créer `src/main.rs` (nouveau fichier)
+Dans VSCode, si vous avez des conflits, supprimez le dossier `src-tauri/` entier puis extrayez le ZIP.
 
-### Étape 2 — Commandes Git (PowerShell)
+### Étape 2 — Extrayez le ZIP à la racine de votre projet
+
+Le ZIP va REMPLACER tous les fichiers listés ci-dessus.
+
+### Étape 3 — Vérifiez dans VSCode
+
+Ouvrez `src-tauri/tauri.conf.json` et vérifiez la ligne :
+```json
+"frontendDist": "resources/placeholder"
+```
+(SI vous voyez `"../src-tauri/resources/placeholder"`, c'est que l'extraction n'a pas remplacé le fichier — supprimez-le manuellement et re-extrayez)
+
+### Étape 4 — Commandes Git (PowerShell)
 
 ```powershell
 git add -A
 ```
 
 ```powershell
-git commit -m "fix: ajoute target dummy [[bin]] au Cargo.toml racine"
+git commit -m "fix: correction complète - frontendDist + Cargo.toml + placeholder"
 ```
 
 ```powershell
 git push origin main --force
 ```
 
-### Étape 3 — Relancez le workflow
+### Étape 5 — Relancez le workflow
 
 1. GitHub → votre dépôt → Actions
 2. "Build Native Apps" → "Run workflow"
@@ -75,16 +102,3 @@ Tous les jobs VERTS :
 - Desktop (Linux) 🟢
 - Android 🟢
 - iOS 🟢
-
----
-
-## 💡 POURQUOI ÇA MARCHE
-
-| Exigence Tauri/Cargo | Satisfaite par |
-|---------------------|----------------|
-| Fichier `Cargo.toml` racine | ✅ Le fichier existe |
-| Section `[package]` | ✅ Présente avec name/version |
-| Au moins un target | ✅ `[[bin]]` pointant vers `src/main.rs` |
-| Workspace avec `src-tauri` | ✅ `[workspace] members = ["src-tauri"]` |
-
-Le binaire dummy n'est jamais build dans l'app finale car `tauri build` lance `cargo build` dans `src-tauri/`, pas à la racine.

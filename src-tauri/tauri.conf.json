@@ -7,7 +7,7 @@
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:3000",
     "beforeBuildCommand": "node scripts/prepare-tauri-resources.mjs",
-    "frontendDist": "../src-tauri/resources/placeholder"
+    "frontendDist": "resources/placeholder"
   },
   "app": {
     "windows": [
