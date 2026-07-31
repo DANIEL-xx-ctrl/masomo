@@ -2,6 +2,9 @@
   "name": "masomo",
   "version": "1.29.0",
   "private": true,
+  "description": "MASOMO — Système de Gestion Scolaire complet (élèves, enseignants, notes, bulletins, paiements)",
+  "author": "MASOMO",
+  "license": "UNLICENSED",
   "scripts": {
     "clean-db": "bun run scripts/clean-db.ts",
     "dev": "node scripts/predev.js && next dev",

@@ -108,11 +108,30 @@ jobs:
       - name: Prepare Electron resources (bundle server + node binary + db)
         run: node scripts/prepare-electron-resources.mjs
 
-      - name: Build Electron app
-        run: bunx electron-builder --config electron-builder.yml ${{ matrix.build_cmd }}
+      - name: Remove native modules unused by Electron main process
+        # The Electron main process (electron/main.js) only uses Node.js
+        # built-in modules (electron, child_process, path, net, http, fs).
+        # It does NOT need @parcel/watcher, sharp, or any native dependency.
+        # Removing them prevents @electron/rebuild from trying to recompile
+        # them (which fails on Windows without Visual Studio Build Tools).
+        shell: bash
+        run: |
+          rm -rf node_modules/@parcel/watcher node_modules/@parcel/watcher-win32-x64 || true
+          rm -rf node_modules/sharp node_modules/@img || true
+          rm -rf node_modules/better-sqlite3 || true
+          rm -rf node_modules/cpu-features || true
+          echo "Remaining native modules:"
+          find node_modules -name "*.node" -type f 2>/dev/null | head -20 || true
+
+      - name: Build Electron app (npmRebuild disabled via CLI override)
+        # --config.npmRebuild=false OVERRIDES whatever is in electron-builder.yml
+        # This is the bulletproof way to skip @electron/rebuild on all platforms.
+        run: bunx electron-builder --config electron-builder.yml ${{ matrix.build_cmd }} --config.npmRebuild=false --config.nodeGypRebuild=false
         env:
           CI: true
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          npm_config_runtime: electron
+          npm_config_target: 33.4.11
 
       - name: Upload artifacts
         if: always()
