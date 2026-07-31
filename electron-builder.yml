@@ -18,6 +18,17 @@ directories:
   output: electron/dist
   buildResources: electron/build
 
+# CRITICAL: Do NOT rebuild native modules against Electron headers.
+# Our architecture runs the Next.js server as a SEPARATE Node.js child process
+# (using the bundled node-bin/node binary), NOT inside the Electron process.
+# Therefore native modules (like @parcel/watcher, sharp) are already compiled
+# for Node.js and do NOT need to be rebuilt for Electron's Node.js ABI.
+# Setting npmRebuild: false avoids requiring Visual Studio Build Tools on
+# Windows, Xcode on macOS, and build-essential on Linux.
+npmRebuild: false
+buildDependenciesFromSource: false
+nodeGypRebuild: false
+
 # Main entry point
 files:
   - electron/main.js
