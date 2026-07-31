@@ -110,6 +110,7 @@ linux:
 
 deb:
   priority: optional
+  compression: gz
 
 # Publish: none (we upload artifacts via GitHub Actions)
 publish: null
