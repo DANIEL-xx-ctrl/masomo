@@ -6,7 +6,7 @@
   "author": "MASOMO",
   "license": "UNLICENSED",
   "homepage": "https://masomo.app",
-  "main": "electron/main.js",
+  "main": "electron/app/main.js",
   "scripts": {
     "clean-db": "bun run scripts/clean-db.ts",
     "dev": "node scripts/predev.js && next dev",
@@ -21,7 +21,7 @@
     "seed:extra": "bun run scripts/seed-extra-institutions.ts",
     "fix:institution-name": "bun run scripts/fix-institution-name.ts",
     "postinstall": "node scripts/postinstall.js",
-    "electron:dev": "node scripts/predev.js && next build && node scripts/prepare-electron-resources.mjs && electron electron/main.js",
+    "electron:dev": "node scripts/predev.js && next build && node scripts/prepare-electron-resources.mjs && electron electron/app/main.js",
     "electron:prepare": "node scripts/prepare-electron-resources.mjs",
     "electron:build": "node scripts/prepare-electron-resources.mjs && electron-builder --config electron-builder.yml",
     "electron:build:win": "node scripts/prepare-electron-resources.mjs && electron-builder --config electron-builder.yml --win",

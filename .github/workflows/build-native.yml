@@ -8,12 +8,18 @@ name: Build Native Apps
 #   - Android: .apk (debug + release)                  — via Capacitor
 #   - iOS:     .ipa (unsigned)                         — via Capacitor
 #
+# BULLETPROOF DESIGN (no more "Visual Studio not found" errors):
+#   The Electron app is packaged from electron/app/ — a CLEAN directory
+#   containing only main.js, preload.js, and a package.json with ZERO
+#   dependencies. There is no node_modules inside it, so @electron/rebuild
+#   finds nothing to rebuild. No Visual Studio / Xcode / build-essential
+#   required on any platform.
+#
 # Usage:
 #   1. Push this project to GitHub
-#   2. Go to the "Actions" tab of your repository
-#   3. Select "Build Native Apps" workflow
-#   4. Click "Run workflow" → choose the server URL → Run
-#   5. When builds finish, download the artifacts (.exe, .dmg, .deb, .apk, .ipa)
+#   2. Go to the "Actions" tab → "Build Native Apps"
+#   3. Click "Run workflow" → choose server URL + build type → Run
+#   4. Download the artifacts (.exe, .dmg, .deb, .apk, .ipa)
 # ============================================================================
 
 on:
@@ -72,7 +78,7 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Linux dependencies (Electron native deps)
+      - name: Install Linux dependencies (Electron runtime libs)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
@@ -108,30 +114,31 @@ jobs:
       - name: Prepare Electron resources (bundle server + node binary + db)
         run: node scripts/prepare-electron-resources.mjs
 
-      - name: Remove native modules unused by Electron main process
-        # The Electron main process (electron/main.js) only uses Node.js
-        # built-in modules (electron, child_process, path, net, http, fs).
-        # It does NOT need @parcel/watcher, sharp, or any native dependency.
-        # Removing them prevents @electron/rebuild from trying to recompile
-        # them (which fails on Windows without Visual Studio Build Tools).
+      - name: Verify clean app directory (no node_modules = no rebuild)
         shell: bash
         run: |
-          rm -rf node_modules/@parcel/watcher node_modules/@parcel/watcher-win32-x64 || true
-          rm -rf node_modules/sharp node_modules/@img || true
-          rm -rf node_modules/better-sqlite3 || true
-          rm -rf node_modules/cpu-features || true
-          echo "Remaining native modules:"
-          find node_modules -name "*.node" -type f 2>/dev/null | head -20 || true
+          echo "=== electron/app/ contents ==="
+          ls -la electron/app/
+          echo ""
+          echo "=== electron/app/package.json (should have ZERO dependencies) ==="
+          cat electron/app/package.json
+          echo ""
+          echo "=== Checking for node_modules in app dir (should NOT exist) ==="
+          if [ -d electron/app/node_modules ]; then
+            echo "WARNING: node_modules exists in app dir!"
+          else
+            echo "OK: No node_modules in app dir — @electron/rebuild will find nothing."
+          fi
 
-      - name: Build Electron app (npmRebuild disabled via CLI override)
-        # --config.npmRebuild=false OVERRIDES whatever is in electron-builder.yml
-        # This is the bulletproof way to skip @electron/rebuild on all platforms.
-        run: bunx electron-builder --config electron-builder.yml ${{ matrix.build_cmd }} --config.npmRebuild=false --config.nodeGypRebuild=false
+      - name: Build Electron app
+        # No need for --config.npmRebuild=false anymore: the app dir
+        # (electron/app/) has no dependencies, so @electron/rebuild has
+        # nothing to rebuild. This works on ALL platforms without
+        # Visual Studio / Xcode / build-essential.
+        run: bunx electron-builder --config electron-builder.yml ${{ matrix.build_cmd }}
         env:
           CI: true
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          npm_config_runtime: electron
-          npm_config_target: 33.4.11
 
       - name: Upload artifacts
         if: always()

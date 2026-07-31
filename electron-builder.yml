@@ -1,51 +1,55 @@
 # ============================================================================
 # electron-builder configuration for MASOMO
 #
-# Produces:
-#   - Windows: NSIS installer (.exe) + portable .exe
-#   - macOS:   .dmg (and .zip for notarization)
-#   - Linux:   .deb + .AppImage
+# BULLETPROOF ARCHITECTURE (fixes the Windows "Visual Studio not found" error):
 #
-# The Next.js standalone server is bundled via extraResources (see
-# scripts/prepare-electron-resources.mjs which builds electron/resources/server/).
+# The app is packaged from a CLEAN directory (electron/app/) that contains
+# ONLY main.js, preload.js, and a minimal package.json with ZERO dependencies.
+# There is NO node_modules inside electron/app/, so @electron/rebuild finds
+# nothing to rebuild — regardless of npmRebuild setting. This eliminates the
+# need for Visual Studio Build Tools on Windows, Xcode on macOS, or
+# build-essential on Linux.
+#
+# The Next.js standalone server (with its OWN node_modules + node binary) is
+# bundled separately via extraResources, and runs as a child process — NOT
+# inside the Electron process.
 # ============================================================================
 
 appId: com.masomo.app
 productName: MASOMO
 copyright: Copyright © 2024 MASOMO
 
+# Explicit Electron version — electron-builder downloads the binary itself,
+# it does NOT need electron in the project's node_modules.
+electronVersion: 33.4.11
+
 directories:
+  # CRITICAL: Package from the clean app dir (no node_modules here!)
+  app: electron/app
   output: electron/dist
   buildResources: electron/build
 
-# CRITICAL: Do NOT rebuild native modules against Electron headers.
-# Our architecture runs the Next.js server as a SEPARATE Node.js child process
-# (using the bundled node-bin/node binary), NOT inside the Electron process.
-# Therefore native modules (like @parcel/watcher, sharp) are already compiled
-# for Node.js and do NOT need to be rebuilt for Electron's Node.js ABI.
-# Setting npmRebuild: false avoids requiring Visual Studio Build Tools on
-# Windows, Xcode on macOS, and build-essential on Linux.
+# Do NOT rebuild native modules. (Also unnecessary now: the app dir has no deps.)
+# Kept for belt-and-suspenders safety.
 npmRebuild: false
 buildDependenciesFromSource: false
 nodeGypRebuild: false
 
-# Main entry point
+# Files to include in the asar — paths are relative to directories.app.
+# Only the Electron main process files go here (they use Node.js built-ins only).
 files:
-  - electron/main.js
-  - electron/preload.js
+  - main.js
+  - preload.js
   - package.json
-  - "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}"
-  - "!{.eslintignore,.eslintrc,.prettierignore,.prettierrc,.stylelintignore,.stylelintrc}"
-  - "!{.env,.env.*,.npmrc,pnpm-lock.yaml,bun.lock}"
-  - "!{README.md,CHANGELOG.md,INSTALLATION-*.md,SETUP.md,BUILD-*.md,NATIVE-*.md,SOURCE-*.md}"
 
-# Bundle the Next.js standalone server + Node.js binary + database
+# Bundle the Next.js standalone server + Node.js binary + database.
+# `from` is relative to the project root (where electron-builder runs).
 extraResources:
   - from: electron/resources/server
     to: server
     filter: ["**/*"]
 
-# Windows NSIS installer
+# Windows NSIS installer + portable exe
 win:
   icon: public/icon-512x512.png
   target:
@@ -67,7 +71,7 @@ nsis:
   installerIcon: public/icon-512x512.png
   uninstallerIcon: public/icon-512x512.png
 
-# macOS DMG
+# macOS DMG (x64 + arm64)
 mac:
   icon: public/icon-512x512.png
   category: public.app-category.education
