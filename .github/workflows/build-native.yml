@@ -1,19 +1,19 @@
 name: Build Native Apps
 
 # ============================================================================
-# Build MASOMO native installers for all platforms:
-#   - Windows: .exe (NSIS) + .msi (WiX)       — via Tauri
-#   - macOS:   .dmg + .pkg                    — via Tauri
-#   - Linux:   .deb + .AppImage               — via Tauri
-#   - Android: .apk (debug + release)         — via Capacitor
-#   - iOS:     .ipa (unsigned)                — via Capacitor
+# Build MASOMO native installers for all platforms WITHOUT Tauri:
+#   - Windows: .exe (NSIS installer) + portable .exe   — via Electron
+#   - macOS:   .dmg (x64 + arm64)                      — via Electron
+#   - Linux:   .deb + .AppImage                        — via Electron
+#   - Android: .apk (debug + release)                  — via Capacitor
+#   - iOS:     .ipa (unsigned)                         — via Capacitor
 #
 # Usage:
 #   1. Push this project to GitHub
 #   2. Go to the "Actions" tab of your repository
 #   3. Select "Build Native Apps" workflow
 #   4. Click "Run workflow" → choose the server URL → Run
-#   5. When builds finish, download the artifacts (.exe, .pkg, .deb, .apk, .ipa)
+#   5. When builds finish, download the artifacts (.exe, .dmg, .deb, .apk, .ipa)
 # ============================================================================
 
 on:
@@ -37,7 +37,7 @@ permissions:
 
 jobs:
   # ==========================================================================
-  # DESKTOP BUILDS (Windows / macOS / Linux) — via Tauri
+  # DESKTOP BUILDS (Windows / macOS / Linux) — via Electron + electron-builder
   # ==========================================================================
   desktop:
     name: Desktop (${{ matrix.label }})
@@ -48,12 +48,15 @@ jobs:
           - os: windows-latest
             label: windows
             artifact: masomo-windows
+            build_cmd: --win
           - os: macos-latest
             label: macos
             artifact: masomo-macos
+            build_cmd: --mac
           - os: ubuntu-latest
             label: linux
             artifact: masomo-linux
+            build_cmd: --linux
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -69,51 +72,47 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Install Linux dependencies
+      - name: Install Linux dependencies (Electron native deps)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libssl-dev \
             libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf
+            libnotify-dev \
+            libnss3-dev \
+            libxss1-dev \
+            libxtst-dev \
+            xauth \
+            xvfb \
+            libgbm-dev \
+            libasound2-dev \
+            libatk-bridge2.0-dev \
+            libatk1.0-dev \
+            libcups2-dev \
+            libdrm-dev \
+            libxkbcommon-dev \
+            libxcomposite-dev \
+            libxdamage-dev \
+            libxfixes-dev \
+            libxrandr-dev
 
       - name: Install JS dependencies
         run: bun install --frozen-lockfile || bun install
 
-      - name: Prepare Tauri resources (build Next.js + copy server)
-        run: node scripts/prepare-tauri-resources.mjs
+      - name: Generate Prisma client
+        run: bun run db:generate
 
-      - name: Build Tauri app
-        run: bunx tauri build
+      - name: Build Next.js (standalone)
+        run: bun run build
+
+      - name: Prepare Electron resources (bundle server + node binary + db)
+        run: node scripts/prepare-electron-resources.mjs
+
+      - name: Build Electron app
+        run: bunx electron-builder --config electron-builder.yml ${{ matrix.build_cmd }}
         env:
           CI: true
-          TAURI_SKIP_BEFORE_BUILD_COMMAND: 'true'
-
-      - name: Create .pkg installer (macOS only)
-        if: matrix.os == 'macos-latest'
-        continue-on-error: true
-        run: |
-          productbuild --component \
-            src-tauri/target/release/bundle/macos/MASOMO.app \
-            /Applications \
-            MASOMO.pkg
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifacts
         if: always()
@@ -121,8 +120,13 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: |
-            src-tauri/target/release/bundle/
-            *.pkg
+            electron/dist/*.exe
+            electron/dist/*.dmg
+            electron/dist/*.deb
+            electron/dist/*.AppImage
+            electron/dist/*.snap
+            electron/dist/*.yml
+            electron/dist/latest*.yml
           retention-days: 30
           if-no-files-found: warn
 

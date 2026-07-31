@@ -1,0 +1,104 @@
+# ============================================================================
+# electron-builder configuration for MASOMO
+#
+# Produces:
+#   - Windows: NSIS installer (.exe) + portable .exe
+#   - macOS:   .dmg (and .zip for notarization)
+#   - Linux:   .deb + .AppImage
+#
+# The Next.js standalone server is bundled via extraResources (see
+# scripts/prepare-electron-resources.mjs which builds electron/resources/server/).
+# ============================================================================
+
+appId: com.masomo.app
+productName: MASOMO
+copyright: Copyright © 2024 MASOMO
+
+directories:
+  output: electron/dist
+  buildResources: electron/build
+
+# Main entry point
+files:
+  - electron/main.js
+  - electron/preload.js
+  - package.json
+  - "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}"
+  - "!{.eslintignore,.eslintrc,.prettierignore,.prettierrc,.stylelintignore,.stylelintrc}"
+  - "!{.env,.env.*,.npmrc,pnpm-lock.yaml,bun.lock}"
+  - "!{README.md,CHANGELOG.md,INSTALLATION-*.md,SETUP.md,BUILD-*.md,NATIVE-*.md,SOURCE-*.md}"
+
+# Bundle the Next.js standalone server + Node.js binary + database
+extraResources:
+  - from: electron/resources/server
+    to: server
+    filter: ["**/*"]
+
+# Windows NSIS installer
+win:
+  icon: public/icon-512x512.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  artifactName: MASOMO-${version}-Setup.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: MASOMO
+  installerIcon: public/icon-512x512.png
+  uninstallerIcon: public/icon-512x512.png
+
+# macOS DMG
+mac:
+  icon: public/icon-512x512.png
+  category: public.app-category.education
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  artifactName: MASOMO-${version}.${ext}
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: null
+  entitlementsInherit: null
+
+dmg:
+  title: MASOMO ${version}
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+# Linux deb + AppImage
+linux:
+  icon: public/icon-512x512.png
+  category: Education
+  target:
+    - target: deb
+      arch:
+        - x64
+    - target: AppImage
+      arch:
+        - x64
+  maintainer: MASOMO
+  vendor: MASOMO
+  synopsis: Système de Gestion Scolaire
+  description: MASOMO — Système de Gestion Scolaire complet (élèves, enseignants, notes, bulletins, paiements)
+
+deb:
+  priority: optional
+
+# Publish: none (we upload artifacts via GitHub Actions)
+publish: null

@@ -58,12 +58,14 @@ upload/*
 # Agent context
 agent-ctx/
 
-# Tauri build artifacts
+# Tauri build artifacts (legacy — Tauri replaced by Electron)
 src-tauri/target/
 src-tauri/resources/server/
-# NOTE: src-tauri/resources/placeholder/ MUST be committed — it contains
-# the loading screen (index.html) that Tauri uses as frontendDist.
-# Without it, `tauri build` fails on GitHub Actions.
+
+# Electron build artifacts
+electron/dist/
+electron/resources/server/
+electron/build/
 
 # Capacitor platforms
 android/
@@ -79,3 +81,4 @@ ios/
 *.AppImage
 *.rpm
 *.pkg
+*.exe
