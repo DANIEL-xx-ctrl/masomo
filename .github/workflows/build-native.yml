@@ -7,19 +7,6 @@ name: Build Native Apps
 #   - Linux:   .deb + .AppImage                        — via Electron
 #   - Android: .apk (debug + release)                  — via Capacitor
 #   - iOS:     .ipa (unsigned)                         — via Capacitor
-#
-# BULLETPROOF DESIGN (no more "Visual Studio not found" errors):
-#   The Electron app is packaged from electron/app/ — a CLEAN directory
-#   containing only main.js, preload.js, and a package.json with ZERO
-#   dependencies. There is no node_modules inside it, so @electron/rebuild
-#   finds nothing to rebuild. No Visual Studio / Xcode / build-essential
-#   required on any platform.
-#
-# Usage:
-#   1. Push this project to GitHub
-#   2. Go to the "Actions" tab → "Build Native Apps"
-#   3. Click "Run workflow" → choose server URL + build type → Run
-#   4. Download the artifacts (.exe, .dmg, .deb, .apk, .ipa)
 # ============================================================================
 
 on:
@@ -103,10 +90,13 @@ jobs:
             libxrandr-dev
 
       - name: Install JS dependencies
-        run: bun install --frozen-lockfile || bun install
+        run: bun install
 
       - name: Generate Prisma client
         run: bun run db:generate
+
+      - name: Push Prisma schema (Create SQLite DB before build)
+        run: bunx prisma db push
 
       - name: Build Next.js (standalone)
         run: bun run build
@@ -120,21 +110,16 @@ jobs:
           echo "=== electron/app/ contents ==="
           ls -la electron/app/
           echo ""
-          echo "=== electron/app/package.json (should have ZERO dependencies) ==="
+          echo "=== electron/app/package.json ==="
           cat electron/app/package.json
           echo ""
-          echo "=== Checking for node_modules in app dir (should NOT exist) ==="
           if [ -d electron/app/node_modules ]; then
             echo "WARNING: node_modules exists in app dir!"
           else
-            echo "OK: No node_modules in app dir — @electron/rebuild will find nothing."
+            echo "OK: No node_modules in app dir."
           fi
 
       - name: Build Electron app
-        # No need for --config.npmRebuild=false anymore: the app dir
-        # (electron/app/) has no dependencies, so @electron/rebuild has
-        # nothing to rebuild. This works on ALL platforms without
-        # Visual Studio / Xcode / build-essential.
         run: bunx electron-builder --config electron-builder.yml ${{ matrix.build_cmd }}
         env:
           CI: true
@@ -191,7 +176,7 @@ jobs:
             platform-tools
 
       - name: Install JS dependencies
-        run: bun install --frozen-lockfile || bun install
+        run: bun install
 
       - name: Install Capacitor Android
         run: bun add @capacitor/android@^6
@@ -219,7 +204,7 @@ jobs:
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Build release APK (unsigned if no keystore secret)
+      - name: Build release APK (unsigned)
         if: github.event.inputs.build_type == 'release'
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon
@@ -236,19 +221,9 @@ jobs:
 
   # ==========================================================================
   # iOS BUILD — via Capacitor
-  #
-  # Produces an unsigned .ipa. To install on a physical device you must:
-  #   1. Have an Apple Developer account ($99/year)
-  #   2. Set these repository secrets:
-  #      - IOS_P12_BASE64, IOS_P12_PASSWORD
-  #      - IOS_PROVISIONING_PROFILE_BASE64, IOS_TEAM_ID
-  #   3. Re-run the workflow — signing activates automatically.
-  #
-  # Without signing secrets, the .ipa can only be installed via sideloading
-  # tools (AltStore, Sideloadly) or run in the iOS Simulator.
   # ==========================================================================
   ios:
-    name: iOS (.ipa)
+    name: iOS (.ipa unsigned)
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -264,13 +239,8 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
-
       - name: Install JS dependencies
-        run: bun install --frozen-lockfile || bun install
+        run: bun install
 
       - name: Install Capacitor iOS
         run: bun add @capacitor/ios@^6
@@ -278,9 +248,7 @@ jobs:
       - name: Update Capacitor server URL
         run: |
           SERVER_URL="${{ github.event.inputs.server_url }}"
-          sed -i '' "s|url: 'http://localhost:3000'|url: '${SERVER_URL}'|" capacitor.config.ts
-          echo "Updated capacitor.config.ts:"
-          cat capacitor.config.ts
+          sed -i "s|url: 'http://localhost:3000'|url: '${SERVER_URL}'|" capacitor.config.ts
 
       - name: Create web assets directory
         run: |
@@ -293,75 +261,18 @@ jobs:
       - name: Sync Capacitor
         run: bunx cap sync ios
 
-      - name: Import signing certificate
-        if: env.IOS_P12_BASE64 != ''
-        env:
-          IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
-          IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
-        run: |
-          echo "$IOS_P12_BASE64" | base64 --decode > cert.p12
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security import cert.p12 -k build.keychain -P "$IOS_P12_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+      - name: Build iOS Xcode Project
+        run: xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Debug -sdk iphoneos CODE_SIGNING_ALLOWED=NO
 
-      - name: Install provisioning profile
-        if: env.IOS_PROVISIONING_PROFILE_BASE64 != ''
-        env:
-          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+      - name: Package Unsigned IPA
         run: |
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/masomo.mobileprovision
+          mkdir -p ios/build/Payload
+          cp -r ios/App/DerivedData/App/Build/Products/Debug-iphoneos/App.app ios/build/Payload/
+          cd ios/build && zip -r masomo-ios-unsigned.ipa Payload
 
-      - name: Build iOS app (archive)
-        working-directory: ios
-        env:
-          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
-        run: |
-          if [ -n "$IOS_TEAM_ID" ]; then
-            echo "Building with signing (Team ID: $IOS_TEAM_ID)"
-            pod install --repo-update || true
-            xcodebuild -workspace App/App.xcworkspace \
-              -scheme App \
-              -configuration Release \
-              -sdk iphoneos \
-              -archivePath build/App.xcarchive \
-              -destination "generic/platform=iOS" \
-              DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
-              CODE_SIGN_STYLE=Manual \
-              archive
-          else
-            echo "Building WITHOUT signing (unsigned archive for simulator/sideload)"
-            pod install --repo-update || true
-            xcodebuild -workspace App/App.xcworkspace \
-              -scheme App \
-              -configuration Release \
-              -sdk iphoneos \
-              -archivePath build/App.xcarchive \
-              -destination "generic/platform=iOS" \
-              CODE_SIGNING_ALLOWED=NO \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGN_IDENTITY="" \
-              archive
-          fi
-
-      - name: Export IPA
-        working-directory: ios
-        run: |
-          mkdir -p build/Payload
-          cp -r build/App.xcarchive/Products/Applications/App.app build/Payload/
-          cd build && zip -r -q MASOMO.ipa Payload
-          echo "=== IPA created ==="
-          ls -lh MASOMO.ipa
-
-      - name: Upload IPA artifacts
-        if: always()
+      - name: Upload iOS Artifact
         uses: actions/upload-artifact@v4
         with:
           name: masomo-ios
-          path: |
-            ios/build/*.ipa
-            ios/build/App.xcarchive
+          path: ios/build/masomo-ios-unsigned.ipa
           retention-days: 30
-          if-no-files-found: warn
