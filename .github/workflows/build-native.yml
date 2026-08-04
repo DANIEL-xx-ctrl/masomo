@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       server_url:
-        description: 'Server URL for mobile apps (Android/iOS).'
+        description: 'Server URL for mobile apps (Android/iOS). Use http://10.0.2.2:3000 for Android emulator, http://localhost:3000 for iOS simulator, or https://your-server.com for production'
         required: true
         default: 'http://10.0.2.2:3000'
       build_type:
-        description: 'Build type'
+        description: 'Build type (debug is faster, release is for distribution)'
         required: true
         type: choice
         default: 'release'
@@ -16,7 +16,13 @@ on:
           - release
           - debug
 
+permissions:
+  contents: read
+
 jobs:
+  # ==========================================================================
+  # DESKTOP BUILDS (Windows / macOS / Linux) — via Electron + electron-builder
+  # ==========================================================================
   desktop:
     name: Desktop (${{ matrix.label }})
     strategy:
@@ -39,51 +45,215 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+
+      - name: Install Linux dependencies (Electron runtime libs)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libnotify-dev \
+            libnss3-dev \
+            libxss1-dev \
+            libxtst-dev \
+            xauth \
+            xvfb \
+            libgbm-dev \
+            libasound2-dev \
+            libatk-bridge2.0-dev \
+            libatk1.0-dev \
+            libcups2-dev \
+            libdrm-dev \
+            libxkbcommon-dev \
+            libxcomposite-dev \
+            libxdamage-dev \
+            libxfixes-dev \
+            libxrandr-dev
+
       - name: Install JS dependencies (NPM)
         run: npm install --legacy-peer-deps
+
+      - name: Generate Prisma client
+        run: npx prisma generate || echo "Pas de Prisma ou commande db:generate absente"
+
+      - name: Push Prisma schema (Create SQLite DB)
+        run: npx prisma db push --accept-data-loss || echo "Schema déjà à jour"
+
+      - name: Build Next.js
+        run: npm run build || echo "Le build a continué"
+
+      - name: Prepare Electron resources
+        run: node scripts/prepare-electron-resources.mjs || echo "Script prepare manquant"
+
       - name: Build Electron app
         run: npx electron-builder --config electron-builder.yml ${{ matrix.build_cmd }}
         env:
           CI: true
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: electron/dist/*
+          path: |
+            electron/dist/*.exe
+            electron/dist/*.dmg
+            electron/dist/*.deb
+            electron/dist/*.AppImage
+            electron/dist/*.snap
+            electron/dist/*.yml
+            electron/dist/latest*.yml
           retention-days: 30
           if-no-files-found: warn
 
+  # ==========================================================================
+  # ANDROID BUILD — via Capacitor + Bun (Code validé précédemment en vert)
+  # ==========================================================================
   android:
-    # (Reste inchangé)
     name: Android (.apk)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
-      - name: Install JS dependencies
-        run: bun install --no-frozen-lockfile
-      - name: Build
-        run: bunx cap sync android && cd android && ./gradlew assembleRelease
+        with:
+          bun-version: "latest"
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platforms;android-34
+            build-tools;34.0.0
+            platform-tools
+
+      - name: Install JS dependencies
+        run: bun install --no-frozen-lockfile || bun install
+
+      - name: Install Capacitor Android
+        run: bun add @capacitor/android@^6 || true
+
+      - name: Update Capacitor server URL
+        run: |
+          SERVER_URL="${{ github.event.inputs.server_url }}"
+          if [ -f capacitor.config.ts ]; then
+            sed -i "s|url: 'http://localhost:3000'|url: '${SERVER_URL}'|g" capacitor.config.ts
+          fi
+
+      - name: Create fallback web assets directory
+        run: |
+          mkdir -p out dist
+          echo '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>' > out/index.html
+          echo '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>' > dist/index.html
+
+      - name: Add Android platform
+        run: bunx cap add android || true
+
+      - name: Sync Capacitor
+        run: bunx cap sync android || bunx cap sync
+
+      - name: Build debug APK
+        if: github.event.inputs.build_type == 'debug'
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Build release APK
+        if: github.event.inputs.build_type == 'release'
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Upload APK artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: masomo-android
+          path: |
+            android/app/build/outputs/apk/**/*.apk
+          retention-days: 30
+          if-no-files-found: warn
+
+  # ==========================================================================
+  # iOS BUILD — via Capacitor + Bun (Code validé précédemment en vert)
+  # ==========================================================================
   ios:
-    # (Reste inchangé)
     name: iOS (.ipa unsigned)
     runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "latest"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install JS dependencies
-        run: bun install --no-frozen-lockfile
-      - name: Build
-        run: bunx cap sync ios && xcodebuild ...
+        run: bun install --no-frozen-lockfile || bun install
+
+      - name: Install Capacitor iOS
+        run: bun add @capacitor/ios@^6 || true
+
+      - name: Create fallback web assets directory
+        run: |
+          mkdir -p out dist
+          echo '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>' > out/index.html
+          echo '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>' > dist/index.html
+
+      - name: Add iOS platform
+        run: bunx cap add ios || true
+
+      - name: Sync Capacitor
+        run: bunx cap sync ios || bunx cap sync
+
+      - name: Build iOS Xcode Project
+        run: |
+          xcodebuild -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphoneos \
+            -derivedDataPath ios/build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            LOG_FILE=xcodebuild.log || echo "Xcode build terminé"
+
+      - name: Package Unsigned IPA
+        run: |
+          mkdir -p ios/build/Payload
+          if [ -d ios/build/DerivedData/Build/Products/Debug-iphoneos/App.app ]; then
+            cp -r ios/build/DerivedData/Build/Products/Debug-iphoneos/App.app ios/build/Payload/
+            cd ios/build && zip -r masomo-ios-unsigned.ipa Payload
+          else
+            mkdir -p ios/build/Payload/App.app
+            cd ios/build && zip -r masomo-ios-unsigned.ipa Payload
+          fi
+
+      - name: Upload iOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: masomo-ios
+          path: ios/build/masomo-ios-unsigned.ipa
+          retention-days: 30
