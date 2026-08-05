@@ -16,7 +16,7 @@ jobs:
           - os: windows-latest
             label: windows
             artifact: masomo-windows
-            build_cmd: --win
+            build_cmd: --win nsis
           - os: macos-latest
             label: macos
             artifact: masomo-macos
@@ -54,15 +54,19 @@ jobs:
         run: bun install --no-frozen-lockfile
 
       - name: Generate Prisma client
+        shell: bash
         run: npx prisma generate || echo "Prisma non présent"
 
       - name: Build Web / Next App
+        shell: bash
         run: bun run build || npx next build || echo "Build web ignoré"
 
       - name: Prepare Electron resources
+        shell: bash
         run: node scripts/prepare-electron-resources.mjs || echo "Script optionnel introuvable"
 
       - name: Build Electron app
+        shell: bash
         run: npx electron-builder --config electron-builder.yml ${{ matrix.build_cmd }}
         env:
           CI: true
