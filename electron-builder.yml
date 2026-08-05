@@ -51,7 +51,7 @@ extraResources:
 
 # Windows NSIS installer + portable exe
 win:
-  icon: public/icon-512x512.png
+  icon:public/icons/icon-72x72.ico
   target:
     - target: nsis
       arch:
@@ -68,8 +68,8 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: MASOMO
-  installerIcon: public/icon-512x512.png
-  uninstallerIcon: public/icon-512x512.png
+  installerIcon: public/icons/icon-72x72.ico
+  uninstallerIcon: public/icons/icon-72x72.ico
 
 # macOS DMG (x64 + arm64)
 mac:
