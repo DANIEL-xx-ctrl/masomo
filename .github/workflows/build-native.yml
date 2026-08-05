@@ -58,8 +58,8 @@ jobs:
         shell: bash
         run: |
           npm install -g png-to-ico
-          if [ -f "public/icon-512x512.png" ]; then
-            npx png-to-ico public/icon-512x512.png > public/icon.ico || true
+          if [ -f "public/icons/icon-72x72.ico" ]; then
+            npx png-to-ico public/icons/icon-72x72.ico > public/icon.ico || true
             echo "Icône .ico générée avec succès pour Windows"
           fi
 
