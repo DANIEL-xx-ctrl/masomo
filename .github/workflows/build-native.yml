@@ -1,28 +1,12 @@
-name: Build Native Apps
+name: Build Desktop Apps
 
 on:
   workflow_dispatch:
-    inputs:
-      server_url:
-        description: 'Server URL for mobile apps (Android/iOS)'
-        required: true
-        default: 'http://10.0.2.2:3000'
-      build_type:
-        description: 'Build type (debug is faster, release is for distribution)'
-        required: true
-        type: choice
-        default: 'release'
-        options:
-          - release
-          - debug
 
 permissions:
   contents: read
 
 jobs:
-  # ==========================================================================
-  # DESKTOP BUILDS (Windows / macOS / Linux)
-  # ==========================================================================
   desktop:
     name: Desktop (${{ matrix.label }})
     strategy:
@@ -61,35 +45,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libgtk-3-dev \
-            libnotify-dev \
-            libnss3-dev \
-            libxss-dev \
-            libxtst-dev \
-            xauth \
-            xvfb \
-            libgbm-dev \
-            libasound2-dev \
-            libatk-bridge2.0-dev \
-            libcups2-dev \
-            libdrm-dev \
-            libxkbcommon-dev \
-            libxcomposite-dev \
-            libxdamage-dev \
-            libxfixes-dev \
-            libxrandr-dev
+            libgtk-3-dev libnotify-dev libnss3-dev libxss-dev libxtst-dev \
+            xauth xvfb libgbm-dev libasound2-dev libatk-bridge2.0-dev \
+            libcups2-dev libdrm-dev libxkbcommon-dev libxcomposite-dev \
+            libxdamage-dev libxfixes-dev libxrandr-dev
 
       - name: Install JS dependencies
         run: bun install --no-frozen-lockfile
 
-      - name: Generate Prisma client (if prisma exists)
-        run: npx prisma generate || echo "Prisma non configuré"
+      - name: Generate Prisma client
+        run: npx prisma generate || echo "Prisma non présent"
 
-      - name: Build Next.js / Web Assets
-        run: bun run build || npx next build || echo "Build passe-partout"
+      - name: Build Web / Next App
+        run: bun run build || npx next build || echo "Build web ignoré"
 
       - name: Prepare Electron resources
-        run: node scripts/prepare-electron-resources.mjs || echo "Script optionnel"
+        run: node scripts/prepare-electron-resources.mjs || echo "Script optionnel introuvable"
 
       - name: Build Electron app
         run: npx electron-builder --config electron-builder.yml ${{ matrix.build_cmd }}
@@ -111,139 +82,3 @@ jobs:
             electron/dist/*.snap
           retention-days: 30
           if-no-files-found: warn
-
-  # ==========================================================================
-  # ANDROID BUILD
-  # ==========================================================================
-  android:
-    name: Android (.apk)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "latest"
-
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install JS dependencies
-        run: bun install --no-frozen-lockfile
-
-      - name: Update Capacitor server URL
-        run: |
-          SERVER_URL="${{ github.event.inputs.server_url }}"
-          if [ -f capacitor.config.ts ]; then
-            sed -i "s|url: 'http://localhost:3000'|url: '${SERVER_URL}'|g" capacitor.config.ts
-          elif [ -f capacitor.config.json ]; then
-            sed -i "s|http://localhost:3000|${SERVER_URL}|g" capacitor.config.json
-          fi
-
-      - name: Create fallback web assets directory
-        run: |
-          mkdir -p out dist www
-          echo '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>' > out/index.html
-          echo '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>' > dist/index.html
-          echo '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>' > www/index.html
-
-      - name: Sync Capacitor
-        run: npx cap sync android
-
-      - name: Grant execute permission for Gradlew
-        run: chmod +x android/gradlew
-
-      - name: Build debug APK
-        if: github.event.inputs.build_type == 'debug'
-        working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: Build release APK
-        if: github.event.inputs.build_type == 'release'
-        working-directory: android
-        run: ./gradlew assembleRelease --no-daemon
-
-      - name: Upload APK artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: masomo-android
-          path: android/app/build/outputs/apk/**/*.apk
-          retention-days: 30
-          if-no-files-found: warn
-
-  # ==========================================================================
-  # iOS BUILD
-  # ==========================================================================
-  ios:
-    name: iOS (.ipa unsigned)
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "latest"
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install JS dependencies
-        run: bun install --no-frozen-lockfile
-
-      - name: Update Capacitor server URL
-        run: |
-          SERVER_URL="${{ github.event.inputs.server_url }}"
-          if [ -f capacitor.config.ts ]; then
-            sed -i '' "s|url: 'http://localhost:3000'|url: '${SERVER_URL}'|g" capacitor.config.ts
-          fi
-
-      - name: Create fallback web assets directory
-        run: |
-          mkdir -p out dist www
-          echo '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>' > out/index.html
-
-      - name: Sync Capacitor
-        run: npx cap sync ios
-
-      - name: Build iOS Xcode Project
-        run: |
-          xcodebuild -workspace ios/App/App.xcworkspace \
-            -scheme App \
-            -configuration Debug \
-            -sdk iphoneos \
-            -derivedDataPath ios/build/DerivedData \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO
-
-      - name: Package Unsigned IPA
-        run: |
-          mkdir -p ios/build/Payload
-          if [ -d ios/build/DerivedData/Build/Products/Debug-iphoneos/App.app ]; then
-            cp -r ios/build/DerivedData/Build/Products/Debug-iphoneos/App.app ios/build/Payload/
-            cd ios/build && zip -r masomo-ios-unsigned.ipa Payload
-          fi
-
-      - name: Upload iOS Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: masomo-ios
-          path: ios/build/masomo-ios-unsigned.ipa
-          retention-days: 30
