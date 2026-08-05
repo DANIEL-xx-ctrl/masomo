@@ -53,6 +53,16 @@ jobs:
       - name: Install JS dependencies
         run: bun install --no-frozen-lockfile
 
+      - name: Fix Windows Icon (Generate valid .ico)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          npm install -g png-to-ico
+          if [ -f "public/icon-512x512.png" ]; then
+            npx png-to-ico public/icon-512x512.png > public/icon.ico || true
+            echo "Icône .ico générée avec succès pour Windows"
+          fi
+
       - name: Generate Prisma client
         shell: bash
         run: npx prisma generate || echo "Prisma non présent"
