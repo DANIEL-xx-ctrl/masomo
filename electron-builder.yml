@@ -51,7 +51,7 @@ extraResources:
 
 # Windows NSIS installer + portable exe
 win:
-  icon:public/icons/icon-72x72.ico
+  icon: public/icons/icon-72x72.ico
   target:
     - target: nsis
       arch:
