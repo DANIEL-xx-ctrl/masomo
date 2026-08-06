@@ -1,50 +1,33 @@
-name: Build Android App
+name: Build iOS App
 
 on:
   workflow_dispatch:
     inputs:
       server_url:
-        description: 'Server URL for Android'
+        description: 'Server URL for iOS'
         required: true
-        default: 'http://10.0.2.2:3000'
-      build_type:
-        description: 'Build type'
-        required: true
-        type: choice
-        default: 'release'
-        options:
-          - release
-          - debug
+        default: 'http://localhost:3000'
 
 permissions:
   contents: read
 
 jobs:
-  android:
-    name: Android (.apk)
-    runs-on: ubuntu-latest
+  ios:
+    name: iOS (.ipa unsigned)
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: "latest"
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+          node-version: '20'
 
       - name: Install JS dependencies
         run: bun install --no-frozen-lockfile
@@ -53,9 +36,9 @@ jobs:
         run: |
           SERVER_URL="${{ github.event.inputs.server_url }}"
           if [ -f capacitor.config.ts ]; then
-            sed -i "s|url: 'http://localhost:3000'|url: '${SERVER_URL}'|g" capacitor.config.ts
+            sed -i '' "s|url: 'http://localhost:3000'|url: '${SERVER_URL}'|g" capacitor.config.ts
           elif [ -f capacitor.config.json ]; then
-            sed -i "s|http://localhost:3000|${SERVER_URL}|g" capacitor.config.json
+            sed -i '' "s|http://localhost:3000|${SERVER_URL}|g" capacitor.config.json
           fi
 
       - name: Create Web Assets Fallback
@@ -65,33 +48,38 @@ jobs:
           echo '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>' > dist/index.html
           echo '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>' > www/index.html
 
-      - name: Add Android platform if missing
+      - name: Add iOS platform if missing
         run: |
-          if [ ! -d "android" ]; then
-            npx cap add android
+          if [ ! -d "ios" ]; then
+            npx cap add ios
           fi
 
-      - name: Sync Capacitor Android
-        run: npx cap sync android
+      - name: Sync Capacitor iOS
+        run: npx cap sync ios
 
-      - name: Grant Gradlew Executable Permissions
-        run: chmod +x android/gradlew
+      - name: Build Xcode Project
+        run: |
+          xcodebuild -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphoneos \
+            -derivedDataPath ios/build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
 
-      - name: Build Debug APK
-        if: github.event.inputs.build_type == 'debug'
-        working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+      - name: Package Unsigned IPA
+        run: |
+          mkdir -p ios/build/Payload
+          if [ -d ios/build/DerivedData/Build/Products/Debug-iphoneos/App.app ]; then
+            cp -r ios/build/DerivedData/Build/Products/Debug-iphoneos/App.app ios/build/Payload/
+            cd ios/build && zip -r masomo-ios-unsigned.ipa Payload
+          fi
 
-      - name: Build Release APK
-        if: github.event.inputs.build_type == 'release'
-        working-directory: android
-        run: ./gradlew assembleRelease --no-daemon
-
-      - name: Upload APK Artifacts
+      - name: Upload iOS Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: masomo-android
-          path: android/app/build/outputs/apk/**/*.apk
+          name: masomo-ios
+          path: ios/build/masomo-ios-unsigned.ipa
           retention-days: 30
           if-no-files-found: warn
