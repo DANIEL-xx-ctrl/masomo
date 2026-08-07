@@ -2,17 +2,13 @@
 // electron/main.js — Electron main process for MASOMO
 //
 // Architecture:
-//   1. On app launch, find a free TCP port on 127.0.0.1
-//   2. Spawn `node server.js` (the bundled Next.js standalone server) as a
-//      child process, with PORT env set to the chosen port
-//   3. Poll http://127.0.0.1:PORT until the server responds
-//   4. Create a BrowserWindow that loads http://127.0.0.1:PORT
-//   5. On app quit / window-all-closed, kill the child server process
-//
-// The bundled server lives in <app>/resources/server/ (extraResources in
-// electron-builder config). On Windows the node binary is at
-// <app>/resources/server/node-bin/node.exe; on macOS/Linux it's
-// <app>/resources/server/node-bin/node.
+//   1. On app launch, setup SQLite DB in UserData directory (fixes Program Files write block)
+//   2. Find a free TCP port on 127.0.0.1
+//   3. Spawn `node server.js` (Next.js standalone server) as a child process, with
+//      DATABASE_URL pointing to AppData/UserData and PORT set to chosen port
+//   4. Poll http://127.0.0.1:PORT until the server responds
+//   5. Create a BrowserWindow that loads http://127.0.0.1:PORT
+//   6. On app quit / window-all-closed, kill the child server process cleanly
 // ============================================================================
 
 const { app, BrowserWindow, shell } = require('electron')
@@ -34,9 +30,7 @@ let serverStarted = false
 // Path helpers — work both in dev (electron/ folder) and packaged app
 // ---------------------------------------------------------------------------
 function getResourcesDir() {
-  // In a packaged app, extraResources are placed under process.resourcesPath.
-  // In dev, we use the project root.
-  if (process.env.ELECTRON_DEV === '1') {
+  if (process.env.ELECTRON_DEV === '1' || !app.isPackaged) {
     return path.join(__dirname, '..')
   }
   return process.resourcesPath
@@ -53,6 +47,36 @@ function getNodeBinary() {
   if (fs.existsSync(candidate)) return candidate
   // Fallback to system node if the bundled binary is missing
   return exe
+}
+
+// ---------------------------------------------------------------------------
+// SQLite Database Manager (Copies DB to AppData/UserData to bypass Program Files restrictions)
+// ---------------------------------------------------------------------------
+function setupDatabasePath() {
+  const userDataPath = app.getPath('userData')
+  const targetDbPath = path.join(userDataPath, 'masomo.sqlite')
+
+  // Source template DB provided in extraResources (prisma/dev.sqlite)
+  const templateDbPath = path.join(getResourcesDir(), 'prisma', 'dev.sqlite')
+
+  // Copy template database if it doesn't exist yet in user's AppData
+  if (!fs.existsSync(targetDbPath)) {
+    try {
+      fs.mkdirSync(userDataPath, { recursive: true })
+      if (fs.existsSync(templateDbPath)) {
+        fs.copyFileSync(templateDbPath, targetDbPath)
+        console.log(`[MASOMO] Database initialized successfully at: ${targetDbPath}`)
+      } else {
+        console.warn(`[MASOMO] Template DB not found at ${templateDbPath}. Prisma will create a new empty database.`)
+      }
+    } catch (err) {
+      console.error('[MASOMO] Failed to initialize SQLite database in AppData:', err)
+    }
+  } else {
+    console.log(`[MASOMO] Using existing database at: ${targetDbPath}`)
+  }
+
+  return targetDbPath
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +109,6 @@ function waitForServer(port, timeoutMs = 60000) {
       const req = http.get(
         { hostname: '127.0.0.1', port, path: '/', timeout: 2000 },
         (res) => {
-          // Any HTTP response means the server is up
           res.resume()
           resolve()
         }
@@ -111,6 +134,7 @@ function startServer(port) {
     throw new Error(`server.js not found at: ${serverJs}`)
   }
 
+  const dbPath = setupDatabasePath()
   const nodeBin = getNodeBinary()
   console.log(`[MASOMO] Starting server: ${nodeBin} ${serverJs} (port ${port})`)
 
@@ -118,8 +142,8 @@ function startServer(port) {
     ...process.env,
     PORT: String(port),
     NODE_ENV: 'production',
-    // Ensure the SQLite database path is relative to the server dir
-    DATABASE_URL: 'file:./db/custom.db',
+    // Dynamic absolute path to writable AppData SQLite database
+    DATABASE_URL: `file:${dbPath}`,
     ELECTRON_RUN: '1',
   }
 
@@ -165,15 +189,12 @@ function createWindow(port) {
     },
   })
 
-  // Load the Next.js app from the local server
   mainWindow.loadURL(`http://127.0.0.1:${port}`)
 
-  // Show window once it's ready (avoids white flash)
   mainWindow.once('ready-to-show', () => {
     mainWindow.show()
   })
 
-  // Open external links (http/https) in the default browser, not in-app
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
       shell.openExternal(url)
@@ -199,7 +220,6 @@ app.whenReady().then(async () => {
     createWindow(serverPort)
   } catch (err) {
     console.error('[MASOMO] Failed to start:', err)
-    // Show an error window
     const win = new BrowserWindow({ width: 600, height: 400 })
     win.loadURL(
       'data:text/html;charset=utf-8,' +
@@ -211,7 +231,6 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
-  // On all platforms, quit when all windows are closed
   app.quit()
 })
 
@@ -229,18 +248,16 @@ app.on('before-quit', () => {
     console.log('[MASOMO] Stopping server process...')
     try {
       if (process.platform === 'win32') {
-        // Use taskkill to kill the whole process tree on Windows
         spawn('taskkill', ['/pid', serverProcess.pid, '/f', '/t'], {
           windowsHide: true,
         })
       } else {
         serverProcess.kill('SIGTERM')
-        // Force kill after 3 seconds if still alive
         setTimeout(() => {
           try {
             serverProcess && serverProcess.kill('SIGKILL')
           } catch (_) {
-            /* already dead */
+            /* process already dead */
           }
         }, 3000)
       }
@@ -250,6 +267,5 @@ app.on('before-quit', () => {
   }
 })
 
-// Prevent the app from being killed externally without cleanup
 process.on('SIGINT', () => app.quit())
 process.on('SIGTERM', () => app.quit())
