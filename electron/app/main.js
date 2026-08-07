@@ -1,18 +1,14 @@
 // ============================================================================
-// electron/main.js — Electron main process for MASOMO
+// electron/app/main.js — Electron main process for MASOMO
 //
 // Architecture:
-//   1. On app launch, find a free TCP port on 127.0.0.1
-//   2. Spawn `node server.js` (the bundled Next.js standalone server) as a
-//      child process, with PORT env set to the chosen port
-//   3. Poll http://127.0.0.1:PORT until the server responds
-//   4. Create a BrowserWindow that loads http://127.0.0.1:PORT
-//   5. On app quit / window-all-closed, kill the child server process
-//
-// The bundled server lives in <app>/resources/server/ (extraResources in
-// electron-builder config). On Windows the node binary is at
-// <app>/resources/server/node-bin/node.exe; on macOS/Linux it's
-// <app>/resources/server/node-bin/node.
+//   1. On app launch, initialize SQLite DB in UserData directory (fixes Program Files write lock)
+//   2. Find a free TCP port on 127.0.0.1
+//   3. Spawn `node server.js` (the bundled Next.js standalone server) as a
+//      child process, with PORT env set to the chosen port & DATABASE_URL set to AppData
+//   4. Poll http://127.0.0.1:PORT until the server responds
+//   5. Create a BrowserWindow that loads http://127.0.0.1:PORT
+//   6. On app quit / window-all-closed, kill the child server process cleanly
 // ============================================================================
 
 const { app, BrowserWindow, shell } = require('electron')
@@ -31,10 +27,10 @@ let serverPort = 0
 let serverStarted = false
 
 // ---------------------------------------------------------------------------
-// Path helpers — work both in dev (electron/ folder) and packaged app
+// Path helpers — work both in dev (electron/app/ folder) and packaged app
 // ---------------------------------------------------------------------------
 function getResourcesDir() {
-  // In a packaged app, extraResources are placed under process.resourcesPath.
+  // In a packaged app, extraResources are placed directly under process.resourcesPath.
   // In dev (running via `electron electron/app/main.js`), this file lives at
   // electron/app/main.js, so resources are at electron/resources/.
   if (!app.isPackaged) {
@@ -54,6 +50,39 @@ function getNodeBinary() {
   if (fs.existsSync(candidate)) return candidate
   // Fallback to system node if the bundled binary is missing
   return exe
+}
+
+// ---------------------------------------------------------------------------
+// SQLite Database Setup — Bypasses C:\Program Files write-permission blocks
+// ---------------------------------------------------------------------------
+function setupDatabasePath() {
+  // Safe write location in AppData/Roaming/MASOMO
+  const userDataPath = app.getPath('userData')
+  const targetDbPath = path.join(userDataPath, 'masomo.sqlite')
+
+  // Source template DB configured in extraResources (prisma/dev.sqlite)
+  const templateDbPath = !app.isPackaged
+    ? path.join(__dirname, '..', '..', 'prisma', 'dev.sqlite')
+    : path.join(process.resourcesPath, 'prisma', 'dev.sqlite')
+
+  // Copy template DB on first startup if user DB does not exist yet
+  if (!fs.existsSync(targetDbPath)) {
+    try {
+      fs.mkdirSync(userDataPath, { recursive: true })
+      if (fs.existsSync(templateDbPath)) {
+        fs.copyFileSync(templateDbPath, targetDbPath)
+        console.log(`[MASOMO] Database initialized successfully at: ${targetDbPath}`)
+      } else {
+        console.warn(`[MASOMO] Template DB not found at ${templateDbPath}. Initializing clean database environment.`)
+      }
+    } catch (err) {
+      console.error('[MASOMO] Failed to copy SQLite database to AppData:', err)
+    }
+  } else {
+    console.log(`[MASOMO] Using existing user database at: ${targetDbPath}`)
+  }
+
+  return targetDbPath
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +141,7 @@ function startServer(port) {
     throw new Error(`server.js not found at: ${serverJs}`)
   }
 
+  const dbPath = setupDatabasePath()
   const nodeBin = getNodeBinary()
   console.log(`[MASOMO] Starting server: ${nodeBin} ${serverJs} (port ${port})`)
 
@@ -119,8 +149,8 @@ function startServer(port) {
     ...process.env,
     PORT: String(port),
     NODE_ENV: 'production',
-    // Ensure the SQLite database path is relative to the server dir
-    DATABASE_URL: 'file:./db/custom.db',
+    // Dynamic absolute path to writable AppData SQLite database
+    DATABASE_URL: `file:${dbPath}`,
     ELECTRON_RUN: '1',
   }
 
