@@ -1,20 +1,31 @@
-name: Build iOS App
+name: Build Desktop Apps
 
 on:
   workflow_dispatch:
-    inputs:
-      server_url:
-        description: 'Server URL for iOS'
-        required: true
-        default: 'http://localhost:3000'
 
 permissions:
   contents: read
 
 jobs:
-  ios:
-    name: iOS (.ipa unsigned)
-    runs-on: macos-latest
+  desktop:
+    name: Desktop (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows
+            artifact: masomo-windows
+            build_cmd: --win nsis
+          - os: macos-latest
+            label: macos
+            artifact: masomo-macos
+            build_cmd: --mac
+          - os: ubuntu-latest
+            label: linux
+            artifact: masomo-linux
+            build_cmd: --linux
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,57 +40,49 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev libnotify-dev libnss3-dev libxss-dev libxtst-dev \
+            xauth xvfb libgbm-dev libasound2-dev libatk-bridge2.0-dev \
+            libcups2-dev libdrm-dev libxkbcommon-dev libxcomposite-dev \
+            libxdamage-dev libxfixes-dev libxrandr-dev
+
       - name: Install JS dependencies
         run: bun install --no-frozen-lockfile
 
-      - name: Inject Server URL
-        run: |
-          SERVER_URL="${{ github.event.inputs.server_url }}"
-          if [ -f capacitor.config.ts ]; then
-            sed -i '' "s|url: 'http://localhost:3000'|url: '${SERVER_URL}'|g" capacitor.config.ts
-          elif [ -f capacitor.config.json ]; then
-            sed -i '' "s|http://localhost:3000|${SERVER_URL}|g" capacitor.config.json
-          fi
+      - name: Generate Prisma client
+        shell: bash
+        run: npx prisma generate || echo "Prisma non présent"
 
-      - name: Create Web Assets Fallback
-        run: |
-          mkdir -p out dist www public
-          echo '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>' > out/index.html
-          echo '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>' > dist/index.html
-          echo '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>' > www/index.html
+      - name: Build Web / Next App
+        shell: bash
+        run: bun run build || npx next build || echo "Build web ignoré"
 
-      - name: Add iOS platform if missing
-        run: |
-          if [ ! -d "ios" ]; then
-            npx cap add ios
-          fi
+      - name: Prepare Electron resources
+        shell: bash
+        run: node scripts/prepare-electron-resources.mjs || echo "Script optionnel introuvable"
 
-      - name: Sync Capacitor iOS
-        run: npx cap sync ios
+      - name: Build Electron app
+        shell: bash
+        run: npx electron-builder --config electron-builder.yml ${{ matrix.build_cmd }}
+        env:
+          CI: true
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Xcode Project
-        run: |
-          xcodebuild -workspace ios/App/App.xcworkspace \
-            -scheme App \
-            -configuration Debug \
-            -sdk iphoneos \
-            -derivedDataPath ios/build/DerivedData \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO
-
-      - name: Package Unsigned IPA
-        run: |
-          mkdir -p ios/build/Payload
-          if [ -d ios/build/DerivedData/Build/Products/Debug-iphoneos/App.app ]; then
-            cp -r ios/build/DerivedData/Build/Products/Debug-iphoneos/App.app ios/build/Payload/
-            cd ios/build && zip -r masomo-ios-unsigned.ipa Payload
-          fi
-
-      - name: Upload iOS Artifact
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: masomo-ios
-          path: ios/build/masomo-ios-unsigned.ipa
+          name: ${{ matrix.artifact }}
+          path: |
+            electron/dist/*.exe
+            electron/dist/*.dmg
+            electron/dist/*.pkg
+            electron/dist/*.deb
+            electron/dist/*.AppImage
+            electron/dist/*.snap
           retention-days: 30
           if-no-files-found: warn
