@@ -1,53 +1,34 @@
 # ============================================================================
 # electron-builder configuration for MASOMO
-#
-# BULLETPROOF ARCHITECTURE (fixes the Windows "Visual Studio not found" error):
-#
-# The app is packaged from a CLEAN directory (electron/app/) that contains
-# ONLY main.js, preload.js, and a minimal package.json with ZERO dependencies.
-# There is NO node_modules inside electron/app/, so @electron/rebuild finds
-# nothing to rebuild — regardless of npmRebuild setting. This eliminates the
-# need for Visual Studio Build Tools on Windows, Xcode on macOS, or
-# build-essential on Linux.
-#
-# The Next.js standalone server (with its OWN node_modules + node binary) is
-# bundled separately via extraResources, and runs as a child process — NOT
-# inside the Electron process.
 # ============================================================================
 
 appId: com.masomo.app
 productName: MASOMO
 copyright: Copyright © 2024 MASOMO
 
-# Explicit Electron version — electron-builder downloads the binary itself,
-# it does NOT need electron in the project's node_modules.
 electronVersion: 33.4.11
 
 directories:
-  # CRITICAL: Package from the clean app dir (no node_modules here!)
   app: electron/app
   output: electron/dist
   buildResources: electron/build
 
-# Do NOT rebuild native modules. (Also unnecessary now: the app dir has no deps.)
-# Kept for belt-and-suspenders safety.
 npmRebuild: false
 buildDependenciesFromSource: false
 nodeGypRebuild: false
 
-# Files to include in the asar — paths are relative to directories.app.
-# Only the Electron main process files go here (they use Node.js built-ins only).
 files:
   - main.js
   - preload.js
   - package.json
 
-# Bundle the Next.js standalone server + Node.js binary + database.
-# `from` is relative to the project root (where electron-builder runs).
+# Extra resources: Serveur Next.js standalone + Template SQLite
 extraResources:
   - from: electron/resources/server
     to: server
     filter: ["**/*"]
+  - from: prisma/dev.sqlite
+    to: prisma/dev.sqlite
 
 # Windows NSIS installer + portable exe
 win:
@@ -116,5 +97,4 @@ deb:
   priority: optional
   compression: gz
 
-# Publish: none (we upload artifacts via GitHub Actions)
 publish: null
