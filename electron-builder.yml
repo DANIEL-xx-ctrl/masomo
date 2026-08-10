@@ -24,11 +24,12 @@ files:
 
 # Extra resources: Serveur Next.js standalone + Template SQLite
 extraResources:
-  - from: electron/resources/server
-    to: server
+  - from: "electron/resources/server"
+    to: "server"
     filter: ["**/*"]
-  - from: prisma/dev.sqlite
-    to: prisma/dev.sqlite
+  - from: "prisma"
+    to: "prisma"
+    filter: ["dev.sqlite"]
 
 # Windows NSIS installer + portable exe
 win:
