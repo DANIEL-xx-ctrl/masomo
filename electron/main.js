@@ -1,14 +1,13 @@
 // ============================================================================
-// electron/main.js — Electron main process for MASOMO
+// electron/app/main.js — Electron main process for MASOMO
 //
 // Architecture:
-//   1. On app launch, setup SQLite DB in UserData directory (fixes Program Files write block)
+//   1. Setup SQLite DB in UserData directory with proper Windows URI format
 //   2. Find a free TCP port on 127.0.0.1
-//   3. Spawn `node server.js` (Next.js standalone server) as a child process, with
-//      DATABASE_URL pointing to AppData/UserData and PORT set to chosen port
+//   3. Spawn `node server.js` (Next.js standalone server) as a child process
 //   4. Poll http://127.0.0.1:PORT until the server responds
-//   5. Create a BrowserWindow that loads http://127.0.0.1:PORT
-//   6. On app quit / window-all-closed, kill the child server process cleanly
+//   5. Create a BrowserWindow loading http://127.0.0.1:PORT
+//   6. Kill child process cleanly on exit
 // ============================================================================
 
 const { app, BrowserWindow, shell } = require('electron')
@@ -27,11 +26,12 @@ let serverPort = 0
 let serverStarted = false
 
 // ---------------------------------------------------------------------------
-// Path helpers — work both in dev (electron/ folder) and packaged app
+// Path helpers — fixes dev vs packaged directory resolution
 // ---------------------------------------------------------------------------
 function getResourcesDir() {
   if (process.env.ELECTRON_DEV === '1' || !app.isPackaged) {
-    return path.join(__dirname, '..')
+    // In dev: __dirname is electron/app -> go up to electron/resources
+    return path.join(__dirname, '..', 'resources')
   }
   return process.resourcesPath
 }
@@ -45,19 +45,20 @@ function getNodeBinary() {
   const exe = process.platform === 'win32' ? 'node.exe' : 'node'
   const candidate = path.join(dir, exe)
   if (fs.existsSync(candidate)) return candidate
-  // Fallback to system node if the bundled binary is missing
   return exe
 }
 
 // ---------------------------------------------------------------------------
-// SQLite Database Manager (Copies DB to AppData/UserData to bypass Program Files restrictions)
+// SQLite Database Manager (Formats Windows file:/// URI for Prisma)
 // ---------------------------------------------------------------------------
-function setupDatabasePath() {
+function setupDatabaseUrl() {
   const userDataPath = app.getPath('userData')
   const targetDbPath = path.join(userDataPath, 'masomo.sqlite')
 
-  // Source template DB provided in extraResources (prisma/dev.sqlite)
-  const templateDbPath = path.join(getResourcesDir(), 'prisma', 'dev.sqlite')
+  // In dev: root/prisma/dev.sqlite | In packaged: resources/prisma/dev.sqlite
+  const templateDbPath = (!app.isPackaged || process.env.ELECTRON_DEV === '1')
+    ? path.join(__dirname, '..', '..', 'prisma', 'dev.sqlite')
+    : path.join(process.resourcesPath, 'prisma', 'dev.sqlite')
 
   // Copy template database if it doesn't exist yet in user's AppData
   if (!fs.existsSync(targetDbPath)) {
@@ -67,7 +68,7 @@ function setupDatabasePath() {
         fs.copyFileSync(templateDbPath, targetDbPath)
         console.log(`[MASOMO] Database initialized successfully at: ${targetDbPath}`)
       } else {
-        console.warn(`[MASOMO] Template DB not found at ${templateDbPath}. Prisma will create a new empty database.`)
+        console.warn(`[MASOMO] Template DB not found at ${templateDbPath}. Starting clean.`)
       }
     } catch (err) {
       console.error('[MASOMO] Failed to initialize SQLite database in AppData:', err)
@@ -76,7 +77,14 @@ function setupDatabasePath() {
     console.log(`[MASOMO] Using existing database at: ${targetDbPath}`)
   }
 
-  return targetDbPath
+  // Windows file URI formatting fix for Prisma (C:\path -> C:/path -> file:///C:/path)
+  const normalizedPath = targetDbPath.replace(/\\/g, '/')
+  const databaseUrl = normalizedPath.startsWith('/')
+    ? `file:${normalizedPath}`
+    : `file:///${normalizedPath}`
+
+  console.log(`[MASOMO] Configured DATABASE_URL: ${databaseUrl}`)
+  return databaseUrl
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +112,7 @@ function waitForServer(port, timeoutMs = 60000) {
   return new Promise((resolve, reject) => {
     function check() {
       if (Date.now() - start > timeoutMs) {
-        return reject(new Error('Server did not start within 60 seconds'))
+        return reject(new Error('Server did not start within 60 seconds.'))
       }
       const req = http.get(
         { hostname: '127.0.0.1', port, path: '/', timeout: 2000 },
@@ -134,7 +142,7 @@ function startServer(port) {
     throw new Error(`server.js not found at: ${serverJs}`)
   }
 
-  const dbPath = setupDatabasePath()
+  const databaseUrl = setupDatabaseUrl()
   const nodeBin = getNodeBinary()
   console.log(`[MASOMO] Starting server: ${nodeBin} ${serverJs} (port ${port})`)
 
@@ -142,8 +150,7 @@ function startServer(port) {
     ...process.env,
     PORT: String(port),
     NODE_ENV: 'production',
-    // Dynamic absolute path to writable AppData SQLite database
-    DATABASE_URL: `file:${dbPath}`,
+    DATABASE_URL: databaseUrl,
     ELECTRON_RUN: '1',
   }
 
@@ -220,11 +227,15 @@ app.whenReady().then(async () => {
     createWindow(serverPort)
   } catch (err) {
     console.error('[MASOMO] Failed to start:', err)
-    const win = new BrowserWindow({ width: 600, height: 400 })
+    const win = new BrowserWindow({ width: 700, height: 450 })
     win.loadURL(
       'data:text/html;charset=utf-8,' +
         encodeURIComponent(
-          `<html><body style="font-family:sans-serif;padding:2rem;background:#1e293b;color:#fca5a5"><h1>MASOMO — Erreur de démarrage</h1><p>Le serveur local n'a pas pu démarrer.</p><pre>${err.message}</pre></body></html>`
+          `<html><body style="font-family:sans-serif;padding:2rem;background:#0f172a;color:#fca5a5">
+            <h1>MASOMO — Erreur de démarrage</h1>
+            <p>Le serveur local n'a pas pu démarrer.</p>
+            <pre style="background:#1e293b;padding:1rem;color:#f87171;white-space:pre-wrap;word-break:break-all">${err.message}</pre>
+          </body></html>`
         )
     )
   }
@@ -256,9 +267,7 @@ app.on('before-quit', () => {
         setTimeout(() => {
           try {
             serverProcess && serverProcess.kill('SIGKILL')
-          } catch (_) {
-            /* process already dead */
-          }
+          } catch (_) {}
         }, 3000)
       }
     } catch (e) {
